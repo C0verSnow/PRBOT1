@@ -6,6 +6,10 @@
 
 **按用户要求，Codex 以 `danger-full-access` + `approvalPolicy: never` 运行，可以直接读写本机文件、执行命令、访问网络。** 页面始终显示“完全访问”。项目目录只是起始工作目录，不是文件系统边界；停止不会撤销已完成操作。应用仅供本机单人使用，默认监听 `127.0.0.1`，不要改成公网服务。
 
+![桌面界面，来自远端 Playwright 实际截图](docs/screenshots/desktop.png)
+
+[查看手机对话界面](docs/screenshots/mobile.png)。截图使用 CI 测试替身，不含真实用户会话。
+
 ## 使用
 
 安装 Node.js **24.22.1 或更新的受支持安全版本**（仓库 `.node-version` 固定了当前 LTS 安全版）。
@@ -76,6 +80,8 @@ npm run start
 CI 的 Codex CLI 使用 `scripts/fake-codex.mjs` 确定性测试替身，不连接付费模型，也不使用用户密钥。正常运行不启用替身。真实模型推理、账户权限和具体项目修改需使用你自己的本机登录体验；不能把替身测试当成真实模型验收。
 
 直接依赖精确锁定，lockfile 包含完整性哈希；`.npmrc` 默认关闭依赖安装脚本；Dependabot 每天检查 npm 更新，每周检查 Actions 更新。已核对近期 Next.js、React RSC 与 Node 安全公告，详细记录见 [设计与安全说明](docs/design.md)。`npm audit` 无法保证没有未知漏洞或恶意包，依赖升级仍需看差异和远端 CI。
+
+最终功能提交 `9dde9ba` 已通过 [远端完整验证](https://github.com/C0verSnow/PRBOT1/actions/runs/40274299202)：**32 个单元测试 + 4 个桌面/手机浏览器测试通过**，类型检查、生产构建和依赖审计通过，已知漏洞 0 个。[完整报告与截图下载](https://github.com/C0verSnow/PRBOT1/actions/runs/40274299202/artifacts/12629781857)。
 
 ## 文档
 
