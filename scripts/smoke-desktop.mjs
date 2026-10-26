@@ -22,10 +22,26 @@ await mkdir("test-results/desktop", { recursive: true });
 const env = { ...process.env, PRBOT_DESKTOP_HOME: home, CODEX_WORKSPACE: "", PRBOT_DATA_DIR: "",
   CODEX_API_KEY: "", OPENAI_API_KEY: "", CODEX_HOME: path.join(home, "codex") };
 const launch = () => _electron.launch({ executablePath, args: process.platform === "linux" ? ["--no-sandbox"] : [], env, timeout: 60_000 });
+async function close(application) {
+  let timer;
+  try {
+    await Promise.race([application.close(), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Installed application did not quit within 10 seconds")), 10_000);
+    })]);
+  } catch (error) {
+    const pid = application.process().pid;
+    if (process.platform === "win32") execFileSync("taskkill", ["/pid", String(pid), "/T", "/F"]);
+    else application.process().kill("SIGKILL");
+    throw error;
+  } finally { clearTimeout(timer); }
+}
 let application;
 try {
+  console.log("[DEBUG-prbot-desktop] Launch installed application");
   application = await launch();
+  console.log("[DEBUG-prbot-desktop] Wait for window");
   let page = await application.firstWindow({ timeout: 60_000 });
+  console.log("[DEBUG-prbot-desktop] Window opened");
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await expect(page.getByRole("heading", { level: 1 })).toContainText("想法");
@@ -40,18 +56,20 @@ try {
   await textbox.fill("安装包草稿恢复");
   await page.screenshot({ path: "test-results/desktop/installed.png", fullPage: true });
   expect(errors).toEqual([]);
-  await application.close();
+  console.log("[DEBUG-prbot-desktop] Close first instance");
+  await close(application);
   application = undefined;
   await expect.poll(async () => {
     try { await fetch("http://127.0.0.1:43127/api/health"); return false; } catch { return true; }
   }).toBe(true);
   application = await launch();
+  console.log("[DEBUG-prbot-desktop] Verify restart");
   page = await application.firstWindow({ timeout: 60_000 });
   await expect(page.getByRole("textbox", { name: "发送给 Codex 的消息" })).toHaveValue("安装包草稿恢复");
   const chats = await (await page.request.get(new URL("/api/chats", page.url()).href)).json();
   expect(chats.some(c => c.id === chat.id)).toBe(true);
   console.log("Installed application: UI, API, native CLI, shutdown and restart persistence passed");
 } finally {
-  await application?.close();
+  await (application ? close(application).catch(error => console.error(error.message)) : Promise.resolve());
   await copyFile(path.join(home, "server.log"), "test-results/desktop/server.log").catch(() => {});
 }
