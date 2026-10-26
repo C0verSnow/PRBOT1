@@ -19,6 +19,7 @@ test("model discovery, persistence and actual SDK model argument agree", async (
   expect(await readFile(path.resolve(".data/workspace/sdk-evidence.txt"), "utf8")).toContain("model=fixture-secondary");
   await page.locator(".workspace-button").click();
   await expect(picker).toHaveValue("fixture-secondary");
+  await expect(settings.getByRole("button", { name: "保存设置", exact: true })).toBeInViewport({ ratio: 1 });
   await page.screenshot({ path: info.outputPath("workspace-settings.png"), fullPage: true, animations: "disabled" });
   await picker.selectOption("");
   await settings.getByRole("button", { name: "保存设置", exact: true }).click();

@@ -18,11 +18,11 @@ export async function discoverModels(overrides: Partial<AppSettings> = {}): Prom
     const runtimeRequire = createRequire(/* turbopackIgnore: true */ path.join(process.cwd(), "package.json"));
     let cli: string;
     try {
-      const sdkEntry = runtimeRequire.resolve(/* turbopackIgnore: true */ "@openai/codex-sdk");
-      const sdkRequire = createRequire(sdkEntry);
-      cli = sdkRequire.resolve(/* turbopackIgnore: true */ "@openai/codex/package.json");
+      // The SDK is import-only; require.resolve(SDK) fails its package export conditions.
+      // Our lockfile and standalone staging place its exact CLI dependency at this root.
+      cli = runtimeRequire.resolve(/* turbopackIgnore: true */ "@openai/codex/package.json");
     } catch (error) {
-      console.error("PRBOT model discovery: SDK/CLI resolution", (error as NodeJS.ErrnoException).code || "Error");
+      console.error("PRBOT model discovery: CLI resolution", (error as NodeJS.ErrnoException).code || "Error");
       throw new HttpError(502, "找不到内置 Codex 程序，请重新安装 PRBOT 或在设置中指定 Codex 程序");
     }
     const targets: Record<string, string> = { linux: "unknown-linux-musl", darwin: "apple-darwin", win32: "pc-windows-msvc" };
