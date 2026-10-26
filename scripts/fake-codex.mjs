@@ -13,6 +13,15 @@ const id = resumed ? args[args.indexOf("resume") + 1] : randomUUID();
 emit({ type: "thread.started", thread_id: id });
 emit({ type: "turn.started" });
 if (prompt.includes("模拟失败")) { emit({ type: "turn.failed", error: { message: "测试服务暂时不可用" } }); process.exit(0); }
+if (prompt.includes("滚动验证")) {
+  const text = Array.from({ length: 60 }, (_, index) => `阅读段落 ${index + 1}：流式更新时保留当前阅读位置。`).join("\n\n");
+  emit({ type: "item.updated", item: { id: "scroll", type: "agent_message", text } });
+  await new Promise(resolve => setTimeout(resolve, 1800));
+  emit({ type: "item.updated", item: { id: "scroll", type: "agent_message", text: `${text}\n\n更新已到达` } });
+  await new Promise(resolve => setTimeout(resolve, 800));
+  emit({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 50 } });
+  process.exit(0);
+}
 if (prompt.includes("长任务")) {
   emit({ type: "item.updated", item: { id: "msg", type: "agent_message", text: "正在执行长任务" } });
   await new Promise(resolve => setTimeout(resolve, 60_000));

@@ -1,2 +1,3 @@
 import { ChatShell } from "@/components/chat-shell";
-export default function Home() { return <ChatShell />; }
+import { InteractionProvider } from "@/components/motion-provider";
+export default function Home() { return <InteractionProvider><ChatShell /></InteractionProvider>; }
