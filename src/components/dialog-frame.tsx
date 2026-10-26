@@ -13,6 +13,7 @@ export function DialogFrame({ title, close, children, className = "" }: {
     const dialog = ref.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog?.showModal();
+    dialog?.querySelector<HTMLElement>("[data-initial-focus]")?.focus({ preventScroll: true });
     return () => { dialog?.close(); if (previous?.isConnected) previous.focus({ preventScroll: true }); };
   }, []);
   return <dialog ref={ref} className={`surface-dialog ${className}`} aria-labelledby={titleId}

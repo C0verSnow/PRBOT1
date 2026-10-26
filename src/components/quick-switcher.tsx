@@ -11,7 +11,7 @@ export function QuickSwitcher({ chats, blocked, close, openChat, newChat, settin
   const filtered = chats.filter(c => c.title.toLowerCase().includes(query.toLowerCase())).slice(0, 20);
   function choose(action: () => void) { close(); action(); }
   return <DialogFrame title="快速切换" close={close} className="quick-switcher">
-    <label className="switcher-search"><Search size={18} /><input autoFocus type="search" aria-label="搜索历史或操作" placeholder="搜索对话，或开始新任务…" value={query} onChange={e => setQuery(e.target.value)} /></label>
+    <label className="switcher-search"><Search size={18} /><input data-initial-focus type="search" aria-label="搜索历史或操作" placeholder="搜索对话，或开始新任务…" value={query} onChange={e => setQuery(e.target.value)} /></label>
     <div className="switcher-results">
       {!query && <div className="switcher-group"><span>快捷操作</span>
         <button disabled={blocked} onClick={() => choose(newChat)}><Plus size={16} /><span>新对话</span><kbd>⌘ ⇧ O</kbd></button>
