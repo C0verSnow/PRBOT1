@@ -17,7 +17,11 @@ export function DialogFrame({ title, close, children, className = "" }: {
     return () => { dialog?.close(); if (previous?.isConnected) previous.focus({ preventScroll: true }); };
   }, []);
   return <dialog ref={ref} className={`surface-dialog ${className}`} aria-labelledby={titleId}
-    onCancel={close} onClick={e => {
+    onCancel={close} onKeyDown={event => {
+      if (event.key === "Escape" && !event.nativeEvent.isComposing) {
+        event.preventDefault(); event.stopPropagation(); close();
+      }
+    }} onClick={e => {
       const rect = ref.current?.getBoundingClientRect();
       if (rect && e.target === ref.current && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom)) close();
     }}>
