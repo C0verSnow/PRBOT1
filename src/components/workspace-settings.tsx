@@ -56,7 +56,7 @@ export function WorkspaceSettings({ config, close, saved, blocked }: { config: P
       {modelError && <p role="alert" className="settings-error">{modelError}</p>}
       <details><summary>Codex 运行设置</summary><label className="settings-item"><span>Codex 程序（留空使用内置版本）</span><input aria-label="Codex 程序" value={codexPath} disabled={disabled} onChange={e => setCodexPath(e.target.value)} placeholder="可执行文件绝对路径" /></label><label className="settings-item"><span>Codex 配置目录（留空使用当前用户默认值）</span><input aria-label="Codex 配置目录" value={codexHome} disabled={disabled} onChange={e => setCodexHome(e.target.value)} placeholder="已存在的 CODEX_HOME 绝对路径" /></label></details>
       {changedRuntime && <p className="settings-help">目录或 Codex 设置已改变。先选择“Codex 默认模型”并保存，再刷新新环境的模型列表。</p>}
-      {changedRuntime && model && <button type="button" onClick={() => setModel("")} disabled={disabled}>使用 Codex 默认模型</button>}
+      {(changedRuntime || modelError) && model && <button type="button" onClick={() => setModel("")} disabled={disabled}>使用 Codex 默认模型</button>}
       <div className="settings-access"><ShieldOff size={18} /><div><strong>完全访问 · 无执行隔离</strong><p>Codex 可以直接读写本机文件、执行命令和访问网络。停止任务不会撤销已经完成的操作。</p></div></div>
       <p className="settings-help">设置保存在本机，下次启动自动恢复。运行中的任务结束后才能修改；项目切换后请新建对话，模型切换从下一条消息生效。密钥只从环境或项目 .env 读取。模型目录不代表账户一定有调用权限，权限错误会在对话中提示。</p>
       {blocked && <p role="status">请先停止或等待当前任务完成，再保存设置。</p>}

@@ -41,3 +41,16 @@ test("settings cannot change while a task is running and failures remain actiona
   await dialog.getByRole("button", { name: "刷新模型", exact: true }).click();
   await expect(dialog.getByRole("combobox", { name: "当前模型", exact: true })).toBeEnabled();
 });
+
+// Cover the bundled native lookup in production code, beyond the deterministic fixture path.
+test("production server discovers models with its actual bundled Codex", async ({ request }) => {
+  const update = (codexPath: string) => request.put("/api/config", { data: { model: "", codexPath } });
+  try {
+    expect((await update("")).status()).toBe(200);
+    const response = await request.get("/api/models");
+    expect(response.status(), await response.text()).toBe(200);
+    expect((await response.json()).models.length).toBeGreaterThan(0);
+  } finally {
+    expect((await update(path.resolve("scripts/fake-codex.mjs"))).status()).toBe(200);
+  }
+});

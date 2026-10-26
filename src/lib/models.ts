@@ -15,14 +15,21 @@ export async function discoverModels(overrides: Partial<AppSettings> = {}): Prom
   let command = config.codexPath;
   if (!command) {
     // Resolve the CLI declared by our exact SDK dependency, including installed standalone resources.
-    const require = createRequire(path.join(process.cwd(), "package.json"));
-    const sdkRequire = createRequire(require.resolve("@openai/codex-sdk"));
-    const cli = sdkRequire.resolve("@openai/codex/package.json");
+    const runtimeRequire = createRequire(/* turbopackIgnore: true */ path.join(process.cwd(), "package.json"));
+    let cli: string;
+    try {
+      const sdkEntry = runtimeRequire.resolve(/* turbopackIgnore: true */ "@openai/codex-sdk");
+      const sdkRequire = createRequire(sdkEntry);
+      cli = sdkRequire.resolve(/* turbopackIgnore: true */ "@openai/codex/package.json");
+    } catch (error) {
+      console.error("PRBOT model discovery: SDK/CLI resolution", (error as NodeJS.ErrnoException).code || "Error");
+      throw new HttpError(502, "找不到内置 Codex 程序，请重新安装 PRBOT 或在设置中指定 Codex 程序");
+    }
     const targets: Record<string, string> = { linux: "unknown-linux-musl", darwin: "apple-darwin", win32: "pc-windows-msvc" };
     const architecture = process.arch === "x64" ? "x86_64" : process.arch === "arm64" ? "aarch64" : "";
     if (!architecture || !targets[process.platform]) throw new HttpError(502, "当前系统没有支持的 Codex 程序");
     const cliRequire = createRequire(cli);
-    const platformPackage = cliRequire.resolve(`@openai/codex-${process.platform}-${process.arch}/package.json`);
+    const platformPackage = cliRequire.resolve(/* turbopackIgnore: true */ `@openai/codex-${process.platform}-${process.arch}/package.json`);
     const vendor = path.join(path.dirname(platformPackage), "vendor", `${architecture}-${targets[process.platform]}`);
     const name = process.platform === "win32" ? "codex.exe" : "codex";
     command = [path.join(vendor, "bin", name), path.join(vendor, "codex", name)].find(existsSync) || "";
