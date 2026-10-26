@@ -98,7 +98,7 @@ CI 的 Codex CLI 使用 `scripts/fake-codex.mjs` 确定性测试替身，不连�
 
 直接依赖精确锁定，lockfile 包含完整性哈希；`.npmrc` 默认关闭依赖安装脚本；Dependabot 每天检查 npm 更新，每周检查 Actions 更新。已核对近期 Next.js、React RSC 与 Node 安全公告，详细记录见 [设计与安全说明](docs/design.md)。`npm audit` 无法保证没有未知漏洞或恶意包，依赖升级仍需看差异和远端 CI。
 
-最新交互提交 `980e1ef` 已通过 [远端完整验证](https://github.com/C0verSnow/PRBOT1/actions/runs/40275963030)：**34 个单元测试 + 14 个桌面/手机浏览器测试通过**，类型检查、生产构建和依赖审计通过，已知漏洞 0 个。新场景覆盖快捷键、聚焦与 Esc/焦点返回、草稿刷新与预写、侧栏收起、删除反馈、系统动态偏好和流式阅读保位。[完整报告与截图下载](https://github.com/C0verSnow/PRBOT1/actions/runs/40275963030/artifacts/12630476013)。
+最新功能提交 `bad18e2` 已通过 [Web 完整回归](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387490)：**34 个单元测试 + 14 个桌面/手机浏览器测试**、类型检查、生产构建和依赖审计通过（0 个已知漏洞）。[跨平台交付验收](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485)的 Windows、两种 macOS、Linux 与 Docker 共 **5 个任务全部通过**。[下载产物、安装截图与验证范围](docs/delivery.md#远端证据)。后续仅补文档和截图，全程没有本地编译验证。
 
 ## 文档
 

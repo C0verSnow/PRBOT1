@@ -72,4 +72,16 @@ docker compose exec prbot sh -c 'node node_modules/@openai/codex/bin/codex.js lo
 
 ## 远端证据
 
-本轮交付运行链接和下载结果将在远端完成后补齐。旧 Web 测试结果不会当作新安装包通过的证据。
+功能提交 `bad18e2` 的 [交付验收](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485)五个任务全部成功；[Web 完整回归](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387490)通过 34 个单元测试、14 个桌面/手机浏览器测试、类型检查、生产构建与全依赖审计（0 个已知漏洞）。此后只更新文档与安装截图。
+
+| 交付内容 | 下载（保留 30 天，包含 SHA256SUMS.txt） |
+| --- | --- |
+| Windows x64 `.exe` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12631679743) |
+| macOS Intel `.dmg` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12631988942) |
+| macOS Apple Silicon `.dmg` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12631634202) |
+| Linux amd64 `.deb` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12631844585) |
+| Docker linux/amd64 镜像归档 | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12632003482) |
+
+已实际查看并保存原始安装版截图：[Windows](screenshots/installed-windows.png)、[macOS](screenshots/installed-macos.png)、[Linux](screenshots/installed-linux.png)。Linux 的中文字体方框已修复并在最终截图确认。
+
+桌面验证了交付后的 SDK/CLI、界面、复制、聊天写入、退出、重启后的聊天与草稿恢复。容器验证了非 root 运行、原生 CLI、跨站拒绝、SDK 替身文件写入，以及删除重建容器后的聊天恢复。未使用真实账户或付费模型，未在本机运行构建、编译、测试或开发服务。
