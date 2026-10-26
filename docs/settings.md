@@ -39,3 +39,11 @@ PRBOT 原创图形：深绿圆角方形、浅色终端提示符和绿色分支�
 本机只读代码、做静态语法与差异检查，不运行项目、不编译或运行测试。远端 CI 执行配置优先级、写入恢复、敏感字段拒绝、坏配置保护、任务互斥、跨项目续聊、真实子进程模型握手/分页/失败等回归；浏览器验证选择→保存→刷新→SDK 模型参数→项目文件写入，桌面/手机都覆盖。
 
 交付 CI 在 Windows、两种 macOS、Linux 安装真实产物，验证用户 .env、实际内置 Codex 模型发现、preload/IPC 目录选择与取消、设置重启恢复、品牌资源加载，并继续原有聊天、草稿、退出回归。系统目录弹窗的返回值由 CI 控制，不依赖人工点选；图标系统入口呈现仍以产物和系统实际显示为准。Docker 继续完整交付验收。不使用用户凭据或付费推理。
+
+## 远端结果与截图
+
+功能提交 `a9dd068` 的 [Web 回归 40327399614](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399614)通过 44 个单元测试、20 个桌面/手机浏览器测试、类型检查、JavaScript 语法检查、生产构建和全依赖审计（0 个已知漏洞）。生产测试同时覆盖确定性模型替身及真实内置 Codex 的 model/list；SDK 测试确认同一项目的旧线程能使用新保存的模型。
+
+安装后曾发现 SDK 仅提供 import 导出，require.resolve(SDK) 违反 package exports 条件；已改为定位锁文件及资源目录中的同版本 CLI，保留原失败断言并通过生产回归。模型权限仍由实际推理时确认，未使用真实凭据或付费推理。
+
+最终设置截图：[桌面](screenshots/workspace-settings.png)、[手机](screenshots/workspace-settings-mobile.png)。实际安装版：[Windows](screenshots/installed-settings-windows.png)、[macOS](screenshots/installed-settings-macos.png)、[Linux](screenshots/installed-settings-linux.png)。均来自远端执行并已查看；安装包验收与下载见 [交付记录](delivery.md#远端证据)。后续仅补充文档与截图。
