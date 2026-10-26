@@ -1,0 +1,140 @@
+name: Build delivery artifacts
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: delivery-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+jobs:
+  desktop:
+    name: Desktop ${{ matrix.platform }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-2025, platform: windows, arch: x64, target: '--win --x64' }
+          - { runner: macos-15-intel, platform: macos, arch: x64, target: '--mac --x64' }
+          - { runner: macos-15, platform: macos, arch: arm64, target: '--mac --arm64' }
+          - { runner: ubuntu-24.04, platform: linux, arch: x64, target: '--linux --x64' }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=high
+      - run: npm run build
+      - run: npm run desktop:stage
+      - name: Package on native operating system
+        run: npm run desktop:pack -- ${{ matrix.target }}
+      - name: Install Windows exe
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem release/*.exe).FullName
+          $dest = "$env:RUNNER_TEMP\installed-prbot"
+          $process = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$dest") -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          "APP_EXECUTABLE=$dest\PRBOT.exe" >> $env:GITHUB_ENV
+          "APP_RESOURCES=$dest\resources" >> $env:GITHUB_ENV
+      - name: Mount macOS dmg
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil attach release/*.dmg -nobrowse -mountpoint "$RUNNER_TEMP/prbot-mount"
+          echo "APP_EXECUTABLE=$RUNNER_TEMP/prbot-mount/PRBOT.app/Contents/MacOS/PRBOT" >> "$GITHUB_ENV"
+          echo "APP_RESOURCES=$RUNNER_TEMP/prbot-mount/PRBOT.app/Contents/Resources" >> "$GITHUB_ENV"
+      - name: Extract Linux deb and install runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64 fonts-noto-cjk
+          dpkg-deb -x release/*.deb "$RUNNER_TEMP/prbot-deb"
+          echo "APP_EXECUTABLE=$RUNNER_TEMP/prbot-deb/opt/PRBOT/prbot" >> "$GITHUB_ENV"
+          echo "APP_RESOURCES=$RUNNER_TEMP/prbot-deb/opt/PRBOT/resources" >> "$GITHUB_ENV"
+      - name: Verify installed desktop application
+        if: runner.os != 'Linux'
+        run: node scripts/smoke-desktop.mjs
+      - name: Verify installed Linux application
+        if: runner.os == 'Linux'
+        run: xvfb-run -a node scripts/smoke-desktop.mjs
+      - name: Detach macOS disk image
+        if: always() && runner.os == 'macOS'
+        run: hdiutil detach "$RUNNER_TEMP/prbot-mount" || true
+      - run: node scripts/checksums.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: PRBOT-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.deb
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: desktop-evidence-${{ matrix.platform }}-${{ matrix.arch }}
+          path: test-results/desktop/
+  docker:
+    name: Docker image and running container
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: .
+          load: true
+          tags: prbot1:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Validate Compose and run real container regression
+        run: |
+          docker compose config --quiet
+          chmod +x scripts/fake-codex.mjs
+          node scripts/smoke-docker.mjs
+      - name: Export loadable image archive
+        run: |
+          mkdir -p release
+          docker save prbot1:ci | gzip > release/PRBOT-docker-linux-amd64.tar.gz
+          node scripts/checksums.mjs
+      - name: Publish tested image to GHCR on main or version tag
+        if: github.event_name == 'push'
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          COMMIT: ${{ github.sha }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          image="ghcr.io/${REPOSITORY,,}"
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag prbot1:ci "$image:sha-$COMMIT"
+          docker push "$image:sha-$COMMIT"
+          if [ "$REF_TYPE" = tag ]; then version="$REF_NAME"; else version=latest; fi
+          docker tag prbot1:ci "$image:$version"
+          docker push "$image:$version"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: PRBOT-docker-linux-amd64
+          path: release/
+          retention-days: 30

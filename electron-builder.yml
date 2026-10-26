@@ -1,0 +1,36 @@
+appId: com.prbot.desktop
+productName: PRBOT
+directories:
+  app: .desktop/app
+  output: release
+files:
+  - main.cjs
+  - package.json
+extraResources:
+  # electron-builder's createFilter skips a source-root node_modules directory.
+  # Copy from its parent so server/node_modules remains nested and is preserved.
+  - from: .desktop
+    to: .
+    filter: [server/**/*]
+asar: true
+npmRebuild: false
+artifactName: PRBOT-${version}-${os}-${arch}.${ext}
+mac:
+  target: [dmg]
+  category: public.app-category.developer-tools
+  identity: null
+  notarize: false
+win:
+  target: [nsis]
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+linux:
+  target: [deb]
+  category: Development
+  executableName: prbot
+  maintainer: PRBOT contributors <noreply@github.com>
+deb:
+  recommends: [fonts-noto-cjk]

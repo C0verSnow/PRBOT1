@@ -1,0 +1,19 @@
+services:
+  prbot:
+    image: ${PRBOT_IMAGE:-prbot1:local}
+    build: .
+    init: true
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CODEX_MODEL: ${CODEX_MODEL:-}
+    volumes:
+      - ${PRBOT_WORKSPACE:-./workspace}:/workspace
+      - chats:/data
+      - codex:/home/node/.codex
+    restart: unless-stopped
+volumes:
+  chats:
+  codex:
