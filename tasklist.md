@@ -6,6 +6,8 @@
 - [1792991568] 完成 issue #1：用最新稳定版 TypeScript、React、Tailwind、Next.js 和官方 Codex JS SDK 做简洁聊天程序，跑通远端测试、更新文档、提 PR 并关闭 issue。
 
 ## 做完：
+- [1792995764] 资源复制修复已由远端证实：安装版 SDK 和 CLI 检查通过，Linux deb 完整验收成功，Docker 再次通过。Apple Silicon 已启动成功，剩余断言是 macOS /var → /private/var 的真实路径差异；按服务端同样使用 realpath 比较。补上本应用剪贴板写入权限和验证、最近启动日志，统一用户配置目录，准备最终复验。
+
 - [1792995302] 首轮远端 Web 完整回归通过；Docker 镜像创建、非 root、SDK 文件写入和重建容器后的历史恢复全部通过。四个桌面安装包均生成，但安装后 SDK 检查暴露依赖漏带；对照 builder 26.18.0 源码确认其过滤来源根层 node_modules，已改从上一级复制 server/**/*，保留失败断言复验。
 
 - [1792994346] 已增加 Electron 原生系统打包、真实安装/挂载/解包验收、Docker 多阶段镜像和容器持久化回归、校验和、Compose 与使用文档。仅更新 lockfile，未安装依赖或编译；新增依赖审计 0 漏洞，JS 语法及 git 差异检查通过，准备推送远端验收。

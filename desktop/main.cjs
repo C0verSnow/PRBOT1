@@ -1,9 +1,10 @@
 // Electron utility process + Next standalone; references and tradeoffs: docs/delivery.md.
 const { app, BrowserWindow, dialog, utilityProcess } = require("electron");
-const { mkdirSync, existsSync } = require("node:fs");
+const { mkdirSync, existsSync, createWriteStream } = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
+app.setName("PRBOT");
 if (process.env.PRBOT_DESKTOP_HOME) app.setPath("userData", path.resolve(process.env.PRBOT_DESKTOP_HOME));
 let backend;
 let window;
@@ -26,7 +27,7 @@ async function start() {
   // Only read runtime user configuration, never ship a developer's .env in an installer.
   const envFile = path.join(home, ".env");
   if (existsSync(envFile)) process.loadEnvFile(envFile);
-  const workspace = process.env.CODEX_WORKSPACE || path.join(home, "workspace");
+  const workspace = path.resolve(home, process.env.CODEX_WORKSPACE || "workspace");
   if (!process.env.CODEX_WORKSPACE) mkdirSync(workspace, { recursive: true });
   const server = path.join(process.resourcesPath, "server");
   const port = Number(process.env.PRBOT_DESKTOP_PORT || 43127);
@@ -38,10 +39,16 @@ async function start() {
     cwd: home,
     env: { ...process.env, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1",
       HOSTNAME: "127.0.0.1", PORT: String(port), PRBOT_INSTANCE_ID: instance,
-      CODEX_WORKSPACE: workspace, PRBOT_DATA_DIR: path.resolve(process.env.PRBOT_DATA_DIR || path.join(home, "chats")) },
-    stdio: "ignore", serviceName: "PRBOT local server",
+      CODEX_WORKSPACE: workspace, PRBOT_DATA_DIR: path.resolve(home, process.env.PRBOT_DATA_DIR || "chats") },
+    stdio: "pipe", serviceName: "PRBOT local server",
   });
+  // Overwrite per launch; keep startup failures inspectable without logging configuration.
+  const log = createWriteStream(path.join(home, "server.log"), { flags: "w", mode: 0o600 });
+  log.on("error", () => {});
+  backend.stdout?.pipe(log, { end: false });
+  backend.stderr?.pipe(log, { end: false });
   backend.on("exit", () => {
+    log.end();
     exited = true;
     if (window && !quitting) {
       dialog.showErrorBox("PRBOT 服务已停止", "本机服务意外退出，请重新打开程序。");
@@ -66,7 +73,13 @@ async function start() {
   window.webContents.on("will-navigate", (event, url) => {
     if (new URL(url).origin !== origin) event.preventDefault();
   });
-  window.webContents.session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
-  window.webContents.session.setPermissionCheckHandler(() => false);
+  // Existing Copy buttons need clipboard writes; reads and unrelated permissions stay denied.
+  const canWriteClipboard = (permission, requestingOrigin) => permission === "clipboard-sanitized-write" && requestingOrigin === origin;
+  window.webContents.session.setPermissionRequestHandler((_contents, permission, callback, details) => {
+    let requestingOrigin;
+    try { requestingOrigin = new URL(details.requestingUrl).origin; } catch { /* deny */ }
+    callback(canWriteClipboard(permission, requestingOrigin));
+  });
+  window.webContents.session.setPermissionCheckHandler((_contents, permission, requestingOrigin) => canWriteClipboard(permission, requestingOrigin));
   await window.loadURL(origin);
 }

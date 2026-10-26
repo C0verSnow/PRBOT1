@@ -1,6 +1,6 @@
 // Remote CI only. Launch the application extracted/installed from the delivery artifact.
 import { _electron, expect } from "@playwright/test";
-import { mkdtemp, mkdir, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, copyFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -30,7 +30,9 @@ try {
   page.on("pageerror", error => errors.push(error.message));
   await expect(page.getByRole("heading", { level: 1 })).toContainText("想法");
   const config = await (await page.request.get(new URL("/api/config", page.url()).href)).json();
-  expect(config.workspace).toBe(path.join(home, "workspace"));
+  expect(config.workspace).toBe(await realpath(path.join(home, "workspace")));
+  await page.evaluate(() => navigator.clipboard.writeText("PRBOT copy regression"));
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe("PRBOT copy regression");
   const created = await page.request.post(new URL("/api/chats", page.url()).href);
   expect(created.status()).toBe(201);
   const chat = await created.json();
@@ -49,4 +51,7 @@ try {
   const chats = await (await page.request.get(new URL("/api/chats", page.url()).href)).json();
   expect(chats.some(c => c.id === chat.id)).toBe(true);
   console.log("Installed application: UI, API, native CLI, shutdown and restart persistence passed");
-} finally { await application?.close(); }
+} finally {
+  await application?.close();
+  await copyFile(path.join(home, "server.log"), "test-results/desktop/server.log").catch(() => {});
+}
