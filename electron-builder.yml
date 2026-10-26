@@ -32,3 +32,5 @@ linux:
   category: Development
   executableName: prbot
   maintainer: PRBOT contributors <noreply@github.com>
+deb:
+  recommends: [fonts-noto-cjk]

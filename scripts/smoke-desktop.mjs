@@ -37,11 +37,8 @@ async function close(application) {
 }
 let application;
 try {
-  console.log("[DEBUG-prbot-desktop] Launch installed application");
   application = await launch();
-  console.log("[DEBUG-prbot-desktop] Wait for window");
   let page = await application.firstWindow({ timeout: 60_000 });
-  console.log("[DEBUG-prbot-desktop] Window opened");
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await expect(page.getByRole("heading", { level: 1 })).toContainText("想法");
@@ -54,16 +51,14 @@ try {
   const chat = await created.json();
   const textbox = page.getByRole("textbox", { name: "发送给 Codex 的消息" });
   await textbox.fill("安装包草稿恢复");
-  await page.screenshot({ path: "test-results/desktop/installed.png", fullPage: true });
+  await page.screenshot({ path: "test-results/desktop/installed.png", fullPage: true, animations: "disabled" });
   expect(errors).toEqual([]);
-  console.log("[DEBUG-prbot-desktop] Close first instance");
   await close(application);
   application = undefined;
   await expect.poll(async () => {
     try { await fetch("http://127.0.0.1:43127/api/health"); return false; } catch { return true; }
   }).toBe(true);
   application = await launch();
-  console.log("[DEBUG-prbot-desktop] Verify restart");
   page = await application.firstWindow({ timeout: 60_000 });
   await expect(page.getByRole("textbox", { name: "发送给 Codex 的消息" })).toHaveValue("安装包草稿恢复");
   const chats = await (await page.request.get(new URL("/api/chats", page.url()).href)).json();

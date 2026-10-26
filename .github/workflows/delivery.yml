@@ -58,7 +58,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64
+          sudo apt-get install -y xvfb libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1 libasound2t64 fonts-noto-cjk
           dpkg-deb -x release/*.deb "$RUNNER_TEMP/prbot-deb"
           echo "APP_EXECUTABLE=$RUNNER_TEMP/prbot-deb/opt/PRBOT/prbot" >> "$GITHUB_ENV"
           echo "APP_RESOURCES=$RUNNER_TEMP/prbot-deb/opt/PRBOT/resources" >> "$GITHUB_ENV"
