@@ -17,6 +17,7 @@
 - Next [#100260](https://github.com/vercel/next.js/issues/100260) 报告 16.4 standalone 的体积和内存增长，尚不声称已解决；保留实际产物供 review 比较大小。
 - [standalone 文档](https://nextjs.org/docs/app/api-reference/config/next-config-js/output)说明 static 需要另行复制，Windows junction 可能无法搬移。打包补齐 static、解引用链接，并在 Windows 安装真实 exe 后验证。
 - SDK 动态定位原生平台包，跟踪可能遗漏 CLI；配置跟踪规则并明确复制当前系统的 @openai/codex*，在交付资源中创建 SDK、运行 CLI --version。CLI 等资源放在 asar 外。
+- 远端安装验收发现 builder 的 [createFilter](https://github.com/electron-userland/electron-builder/blob/electron-builder%4026.18.0/packages/app-builder-lib/src/util/filter.ts)会跳过复制来源根层的 node_modules。资源映射改从上一层复制 server/**/*，使 server/node_modules 保持嵌套；保留原有安装后 SDK/CLI 检查，防止只在暂存目录检查通过。
 - 用户 .env 和聊天记录保存在可写用户目录，CI 不包含账户凭据，不调用付费模型。
 
 ## 产物与验证

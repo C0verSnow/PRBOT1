@@ -6,6 +6,8 @@
 - [1792991568] 完成 issue #1：用最新稳定版 TypeScript、React、Tailwind、Next.js 和官方 Codex JS SDK 做简洁聊天程序，跑通远端测试、更新文档、提 PR 并关闭 issue。
 
 ## 做完：
+- [1792995302] 首轮远端 Web 完整回归通过；Docker 镜像创建、非 root、SDK 文件写入和重建容器后的历史恢复全部通过。四个桌面安装包均生成，但安装后 SDK 检查暴露依赖漏带；对照 builder 26.18.0 源码确认其过滤来源根层 node_modules，已改从上一级复制 server/**/*，保留失败断言复验。
+
 - [1792994346] 已增加 Electron 原生系统打包、真实安装/挂载/解包验收、Docker 多阶段镜像和容器持久化回归、校验和、Compose 与使用文档。仅更新 lockfile，未安装依赖或编译；新增依赖审计 0 漏洞，JS 语法及 git 差异检查通过，准备推送远端验收。
 
 - [1792994180] 已比较 Electron/electron-builder 与 Next.js 官方 Docker 示例，确认 MIT 许可、近期提交与问题响应。采用独立服务资源目录，避免把原生 CLI 塞进 asar，并将用户配置和聊天记录留在安装目录之外。

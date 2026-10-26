@@ -7,8 +7,11 @@ files:
   - main.cjs
   - package.json
 extraResources:
-  - from: .desktop/server
-    to: server
+  # electron-builder's createFilter skips a source-root node_modules directory.
+  # Copy from its parent so server/node_modules remains nested and is preserved.
+  - from: .desktop
+    to: .
+    filter: [server/**/*]
 asar: true
 npmRebuild: false
 artifactName: PRBOT-${version}-${os}-${arch}.${ext}
