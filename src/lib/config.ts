@@ -49,7 +49,7 @@ export async function runtimeConfig(overrides: Partial<AppSettings> = {}) {
   if (codexPath) {
     if (!path.isAbsolute(codexPath)) throw new HttpError(400, "Codex 程序请填写绝对路径");
     try {
-      if (!(await stat(codexPath)).isFile()) throw new Error();
+      if (!(await stat(/* turbopackIgnore: true */ codexPath)).isFile()) throw new Error();
       await access(codexPath, process.platform === "win32" ? constants.R_OK : constants.X_OK);
     } catch { throw new HttpError(400, "Codex 程序不存在或不能执行"); }
   }
