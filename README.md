@@ -54,6 +54,12 @@ npm run start
 
 `npm run start` 需要相同系统平台上已有的 `.next` 构建产物；干净源码请使用开发模式，或由你的远端构建/交付流程准备产物。本次交付没有在本地运行开发服务、构建或测试。
 
+## 下载安装包与 Docker
+
+[交付流程](https://github.com/C0verSnow/PRBOT1/actions/workflows/delivery.yml)自动生成 Windows exe、macOS Intel/Apple Silicon dmg、Linux amd64 deb 和可载入的 Docker 镜像归档，附 SHA-256。桌面自带运行时和 Codex CLI，安装包暂未签名、公证。
+
+[下载安装、配置目录、容器运行与验证范围](docs/delivery.md)。PR 阶段在 Actions 的 Artifacts 下载；合并后 CI 可发布通过验收的 GHCR 镜像。编译和启动验证都在远端完成。
+
 ## 交互细节
 
 参考维护活跃、MIT 许可的 Motion 与 shadcn/assistant-ui，采用克制精致的聊天工作台设计。具体来源与上游问题调查见 [高级交互研究](docs/interaction-research.md)。

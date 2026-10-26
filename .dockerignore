@@ -1,0 +1,11 @@
+.git
+.next
+.desktop
+release
+node_modules
+.env*
+.data
+test-results
+playwright-report
+docs/screenshots
+tasklist.md

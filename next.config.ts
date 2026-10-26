@@ -1,5 +1,8 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
+  output: "standalone",
+  // Codex resolves its platform package dynamically; NFT cannot infer these paths.
+  outputFileTracingIncludes: { "/*": ["./node_modules/@openai/codex*/**/*"] },
   serverExternalPackages: ["@openai/codex-sdk"],
   poweredByHeader: false,
   async headers() {

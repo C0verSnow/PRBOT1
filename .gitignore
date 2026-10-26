@@ -8,3 +8,6 @@ out/
 playwright-report/
 test-results/
 .DS_Store
+.desktop/
+release/
+workspace/
