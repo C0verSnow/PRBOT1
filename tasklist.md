@@ -4,6 +4,8 @@
 - [1792991568] 完成 issue #1：用最新稳定版 TypeScript、React、Tailwind、Next.js 和官方 Codex JS SDK 做简洁聊天程序，跑通远端测试、更新文档、提 PR 并关闭 issue。
 
 ## 做完：
+- [1792992369] 首轮远端完整验收通过：27 个单元测试、4 个桌面/手机浏览器测试、类型检查、生产构建和漏洞审计全部成功；真实 SDK 子进程链路已在 CI 临时目录完成文件写入。补充 API 路由边界测试，并按远端构建日志排除运行时目录的打包追踪，避免把本机项目目录纳入程序产物。
+- [1792992282] 已推送首版并创建 PR #2；远端 CI 已通过依赖安装、全依赖漏洞审计、TypeScript 类型检查和单元回归，正在构建并准备浏览器链路测试。没有执行本地编译验证。
 - [1792992206] 已完成 Next.js / React / Tailwind 聊天界面、官方 SDK 全访问流式链路、会话恢复、本地历史、停止和错误反馈；新增远端 CI 和回归用例。静态 npm audit 检查整个锁文件为 0 个已知漏洞。
 - [1792992206] 用户要求重点注意 JavaScript CVE 和参考成熟 UI；已读 Next.js / React / Node 官方安全公告及 assistant-ui 的 Thread、Composer、ThreadList、ScrollAnchor 源码，比较结果与来源写入 docs/design.md。
 - [1792991712] 用户确认本机使用、可修改项目文件，并明确要求关闭执行隔离；采用 danger-full-access，服务只监听本机。已查官方 SDK 文档与当前 npm 稳定版，筛选 Codex 和 assistant-ui 并比较许可、近期提交与问题响应。
