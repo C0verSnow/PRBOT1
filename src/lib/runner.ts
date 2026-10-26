@@ -1,3 +1,5 @@
+import { workspace, runtimeConfig } from "./config";
+import { runs, assertCanRun } from "./runtime-state";
 import { randomUUID } from "node:crypto";
 import { activity, openThread, readableError } from "./codex";
 import { HttpError } from "./http";
@@ -6,12 +8,12 @@ import type { Chat, Message, StreamEvent } from "./types";
 
 // Shared across Next development reloads. Run a single Node server for this local app.
 const state = globalThis as typeof globalThis & { prbotRuns?: Map<string, AbortController>; prbotSnapshots?: Map<string, Chat> };
-const runs = state.prbotRuns ??= new Map();
 const snapshots = state.prbotSnapshots ??= new Map();
 export function liveChat(id: string) { return snapshots.get(id); }
 export function isRunning(id: string) { return runs.has(id); }
 export function stop(id: string) { runs.get(id)?.abort(); }
 export function reserve(id: string) {
+  assertCanRun();
   if (runs.has(id)) throw new HttpError(409, "这段对话还在执行，请先停止或等待完成");
   const controller = new AbortController(); runs.set(id, controller);
   return { controller, release: () => { if (runs.get(id) === controller) { runs.delete(id); snapshots.delete(id); } } };
@@ -28,6 +30,9 @@ export async function prepareTurn(id: string, prompt: string) {
   const lock = reserve(id);
   try {
     const chat = await getChat(id);
+    const currentWorkspace = await workspace();
+    if (chat.workspace && chat.workspace !== currentWorkspace) throw new HttpError(409, "这段对话属于另一个项目，请切回原目录或新建对话");
+    chat.workspace = currentWorkspace;
     // A previous process may have exited without a terminal event.
     for (const m of chat.messages) if (m.status === "running") {
       m.status = "stopped"; m.error = "上次执行被中断。";
@@ -87,7 +92,8 @@ export function streamTurn(turn: Awaited<ReturnType<typeof prepareTurn>>, prompt
         answer.status = "completed";
       } catch (e) {
         answer.status = signal.aborted ? "stopped" : "failed";
-        answer.error = signal.aborted ? "执行已停止。已完成的文件操作不会自动撤销。" : readableError(e);
+        const config = await runtimeConfig().catch(() => undefined);
+        answer.error = signal.aborted ? "执行已停止。已完成的文件操作不会自动撤销。" : readableError(e, [config?.env.CODEX_API_KEY || "", config?.env.OPENAI_API_KEY || ""]);
       } finally {
         try {
           await saveChat(chat);

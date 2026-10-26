@@ -21,7 +21,7 @@ describe("route contracts", () => {
     const response = await config(request()); const data = await response.json();
     expect(response.status).toBe(200); expect(data.access).toBe("danger-full-access");
     expect(JSON.stringify(data)).not.toContain("private-server-key");
-    expect(Object.keys(data).sort()).toEqual(["access", "model", "workspace"]);
+    expect(Object.keys(data).sort()).toEqual(["access", "codexHome", "codexPath", "model", "modelId", "recentWorkspaces", "workspace"]);
   });
   it("persists, lists, reads and deletes a chat", async () => {
     const created = await create(request("POST")); expect(created.status).toBe(201);

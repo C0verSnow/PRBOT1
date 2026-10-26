@@ -24,6 +24,13 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Audit all locked dependencies
         run: npm audit --audit-level=high
+      - name: Check desktop and delivery JavaScript syntax
+        run: |
+          node --check desktop/main.cjs
+          node --check desktop/preload.cjs
+          node --check scripts/stage-desktop.mjs
+          node --check scripts/smoke-desktop.mjs
+          node --check scripts/fake-codex.mjs
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

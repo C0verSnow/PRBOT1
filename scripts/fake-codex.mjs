@@ -3,7 +3,23 @@
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
+import { createInterface } from "node:readline";
 const args = process.argv.slice(2);
+if (args.includes("app-server")) {
+  let initialized = false;
+  const lines = createInterface({ input: process.stdin });
+  for await (const line of lines) {
+    const request = JSON.parse(line);
+    if (request.method === "initialize") process.stdout.write(JSON.stringify({ id: request.id, result: { userAgent: "fixture" } }) + "\n");
+    if (request.method === "initialized") initialized = true;
+    if (request.method === "model/list") {
+      if (!initialized) throw new Error("Missing initialize handshake");
+      if (process.env.PRBOT_TEST_MODELS_FAILURE) process.stdout.write(JSON.stringify({ id: request.id, error: { code: -1, message: "fixture failure" } }) + "\n");
+      else process.stdout.write(JSON.stringify({ id: request.id, result: { data: request.params.cursor ? [{ model: "fixture-secondary", displayName: "CI 第二模型", isDefault: false }] : [{ model: "fixture-default", displayName: "CI 默认模型", isDefault: true }, { model: "fixture-hidden", hidden: true }], nextCursor: request.params.cursor ? null : "page-2" } }) + "\n");
+    }
+  }
+  process.exit(0);
+}
 if (!args.includes("danger-full-access") || !args.includes('approval_policy="never"')) throw new Error("Full access options missing");
 let prompt = "";
 for await (const chunk of process.stdin) prompt += chunk;
@@ -28,7 +44,7 @@ if (prompt.includes("长任务")) {
 }
 if (prompt.includes("写入测试文件")) {
   const cwd = args[args.indexOf("--cd") + 1];
-  writeFileSync(path.join(cwd, "sdk-evidence.txt"), "written through SDK subprocess\n");
+  writeFileSync(path.join(cwd, "sdk-evidence.txt"), `written through SDK subprocess\nmodel=${args.includes("--model") ? args[args.indexOf("--model") + 1] : "default"}\n`);
   emit({ type: "item.completed", item: { id: "file", type: "file_change", changes: [{ path: "sdk-evidence.txt", kind: "add" }], status: "completed" } });
 }
 emit({ type: "item.started", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "", status: "in_progress" } });

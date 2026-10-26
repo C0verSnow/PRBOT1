@@ -35,15 +35,15 @@
 
 ## 桌面使用
 
-下载对应 artifact 并解压，安装 exe、打开 dmg 或安装 deb。无需另装 Node。默认在用户目录新建 workspace，不把安装目录当作项目。
+下载对应 artifact 并解压，安装 exe、打开 dmg 或安装 deb。无需另装 Node。首次没有目录设置时弹出原生目录选择框；取消后在用户目录新建 workspace。
 
-配置放在以下目录的 .env，变量沿用仓库 .env.example，重启后生效：
+配置放在以下目录的 .env，变量沿用仓库 .env.example，启动前加载；项目 .env 也自动读取，具体规则见 [设置说明](settings.md)：
 
 - Windows：`%APPDATA%/PRBOT/.env`
 - macOS：`~/Library/Application Support/PRBOT/.env`
 - Linux：`~/.config/PRBOT/.env`（遵循 XDG_CONFIG_HOME）
 
-设置 `CODEX_WORKSPACE=/你的项目绝对路径`，可选 `CODEX_API_KEY`、`CODEX_MODEL`。环境变量优先于配置文件；配置不打入安装包。聊天默认保存在同目录的 chats，草稿存在 Electron 浏览器配置。复用当前用户 Codex 登录时无需 key。
+设置 `CODEX_WORKSPACE=/你的项目绝对路径`，可选 `CODEX_API_KEY`、`CODEX_MODEL`。已保存设置优先于启动环境和项目 .env，工作空间内保存后下一条任务生效；配置不打入安装包。聊天默认保存在同目录的 chats，草稿存在 Electron 浏览器配置。复用当前用户 Codex 登录时无需 key。
 
 服务只监听 `127.0.0.1:43127`，不会连接占用该端口的其他程序。可用 `PRBOT_DESKTOP_PORT` 设置 1024–65535 的端口；更改端口会改变浏览器 origin，旧草稿仍留在原 origin。只允许单实例；关窗口会停止后台服务。渲染器关闭 Node 集成、启用上下文隔离和沙箱，拒绝外部跳转和新窗口；仅允许本应用写剪贴板以保留复制功能，拒绝剪贴板读取及其他权限。用户目录中的 server.log 保留最近一次启动日志。
 
