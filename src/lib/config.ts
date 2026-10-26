@@ -37,7 +37,7 @@ export async function readSettings(): Promise<Partial<AppSettings>> {
 export async function runtimeConfig(overrides: Partial<AppSettings> = {}) {
   const saved = { ...await readSettings(), ...overrides };
   const workspace = await directory(path.resolve(/* turbopackIgnore: true */ saved.workspace || process.env.CODEX_WORKSPACE || process.cwd()));
-  let project: Record<string, string> = {};
+  let project: Record<string, string | undefined> = {};
   try { project = parseEnv(await readFile(path.join(workspace, ".env"), "utf8")); }
   catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw new HttpError(400, "项目 .env 无法读取，请检查格式和权限");

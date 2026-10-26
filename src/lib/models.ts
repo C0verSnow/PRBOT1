@@ -28,7 +28,7 @@ export async function discoverModels(overrides: Partial<AppSettings> = {}): Prom
     command = [path.join(vendor, "bin", name), path.join(vendor, "codex", name)].find(existsSync) || "";
     if (!command) throw new HttpError(502, "内置 Codex 程序缺失，请重新安装 PRBOT");
   }
-  const child = spawn(command, args, { cwd: config.workspace, env: config.env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  const child = spawn(command, args, { cwd: config.workspace, env: { ...config.env, NODE_ENV: process.env.NODE_ENV || "production" }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason: Error) => void }>();
   const unavailable = () => new HttpError(502, "无法读取 Codex 模型列表，请检查登录、网络和 Codex 程序，点击刷新重试");
