@@ -73,7 +73,15 @@ export async function discoverModels(overrides: Partial<AppSettings> = {}): Prom
       for (const entry of result.data) {
         const item = entry as Record<string, unknown>;
         if (item && item.hidden !== true && typeof item.model === "string" && item.model && !/[\s\x00-\x1f]/.test(item.model)) {
-          models.set(item.model, { id: item.model, name: typeof item.displayName === "string" ? item.displayName : item.model, isDefault: item.isDefault === true });
+          const efforts = Array.isArray(item.supportedReasoningEfforts) ? item.supportedReasoningEfforts.flatMap((v: unknown) => {
+            const effort = (v as { reasoningEffort?: unknown })?.reasoningEffort;
+            return typeof effort === "string" && ["minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent"].includes(effort) ? [effort] : [];
+          }) : [];
+          const speeds = Array.isArray(item.serviceTiers) ? item.serviceTiers.flatMap((v: unknown) => {
+            const tier = v as { id?: unknown; name?: unknown };
+            return typeof tier?.id === "string" && /^[a-zA-Z0-9_-]{1,50}$/.test(tier.id) && typeof tier.name === "string" ? [{ id: tier.id, name: tier.name }] : [];
+          }) : [];
+          models.set(item.model, { id: item.model, name: typeof item.displayName === "string" ? item.displayName : item.model, isDefault: item.isDefault === true, efforts, defaultEffort: typeof item.defaultReasoningEffort === "string" ? item.defaultReasoningEffort : "", speeds, defaultSpeed: typeof item.defaultServiceTier === "string" ? item.defaultServiceTier : "" });
         }
       }
       if (!result.nextCursor) { if (!models.size) throw unavailable(); return [...models.values()]; }

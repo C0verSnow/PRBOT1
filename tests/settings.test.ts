@@ -77,8 +77,13 @@ describe("official app-server discovery transport", () => {
   it("initializes, paginates and filters hidden models from the actual subprocess", async () => {
     const models = await discoverModels();
     expect(models.map(m => m.id)).toEqual(["fixture-default", "fixture-secondary"]);
-    const response = await update({ model: "fixture-secondary" });
+    expect(models[1].efforts).toEqual(["low", "high"]);
+    expect(models[1].speeds).toEqual([{ id: "priority", name: "Fast" }]);
+    expect((await update({ model: "fixture-secondary", effort: "medium" })).status).toBe(400);
+    expect((await update({ model: "fixture-secondary", speed: "flex" })).status).toBe(400);
+    const response = await update({ model: "fixture-secondary", effort: "high", speed: "priority" });
     expect(response.status).toBe(200); expect((await publicConfig()).modelId).toBe("fixture-secondary");
+    expect(await readSettings()).toMatchObject({ effort: "high", speed: "priority" });
     expect((await update({ model: "not-in-catalog" })).status).toBe(400);
     expect((await publicConfig()).modelId).toBe("fixture-secondary");
   });

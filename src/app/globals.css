@@ -325,4 +325,4 @@ kbd { font-family:inherit; font-size:10px; font-weight:400; color:#929a8d; line-
 .brand-mark img { width:100%; height:100%; border-radius:inherit; }
 
 .workspace-dialog .settings-item>span,.workspace-dialog .settings-help { color:#68755f; }
-.workspace-dialog .dialog-actions { position:sticky; bottom:0; z-index:1; background:white; padding:12px 0 4px; box-shadow:0 -10px 12px white; }
+.workspace-dialog .dialog-actions { padding:12px 0 4px; }

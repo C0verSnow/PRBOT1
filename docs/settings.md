@@ -20,6 +20,16 @@
 
 列表按需获取，支持刷新；最多等待 15 秒，结束后关闭子进程。失败时显示可重试提示，保留已保存模型。保存非空模型时重新查询当前目标环境，模型不在列表中则拒绝保存。改变目录或 Codex 程序/配置目录时，先保存默认模型，再刷新新环境列表并选择模型。列表可能来自 Codex 的内置或缓存目录，**并不保证账户推理权限**；容量、权限、认证等执行错误在对话中提示，敏感值会被隐藏。列表不会扫描硬盘寻找模型权重。
 
+## 模型速度与推理强度（issue #6）
+
+设置页在模型旁显示 Speed 和 Effort。选项来自所选模型的官方 `model/list`，默认模型使用列表标记的默认项；切换模型会重置这两项。留空时沿用 Codex 自身配置，速度中的“标准”显式请求 default，其他档位来自模型目录。保存前重新查询目标环境并校验，旧设置文件缺少字段时继续使用 Codex 默认。模型或运行环境变化时，请重新选择；任务开始或续聊时，SDK 接收推理强度，服务档位通过 SDK 的 `config.service_tier` 传给 CLI。服务端可能降级请求，账户权限、费用和实际速度以服务提供方为准。
+
+设置对话框的操作按钮随内容滚动，避免遮住说明文字；需要时向下滚动即可保存。远端测试覆盖模型元数据、非法选项、保存恢复、SDK 参数和桌面/手机滚动。
+
+本次查阅 [Codex 0.164.0 的模型协议](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/app-server-protocol/schema/json/v2/ModelListResponse.json)、[SDK 参数](https://github.com/openai/codex/blob/rust-v0.164.0/sdk/typescript/src/codexOptions.ts) 与 [配置定义](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/config/src/config_toml.rs)。沿用下方已比较的活跃 Apache-2.0 项目 Codex 与 MIT 的 Electron / electron-store，无新增依赖；上游 [速度档位可能被服务端降级](https://github.com/openai/codex/issues/32191)，因此不承诺实际速度。
+
+远端验证：功能提交 `b52d9c7` 的 [Web 工作流](https://github.com/C0verSnow/PRBOT1/actions/runs/40429116668)通过 44 项单元测试、20 项桌面/手机浏览器测试、类型检查、构建与依赖审计；[交付工作流](https://github.com/C0verSnow/PRBOT1/actions/runs/40429116723)通过 Windows、两种 macOS、Linux 安装验收和 Docker。Intel Mac 首次产物上传超时，单项重跑成功。本机没有编译或运行项目测试。
+
 ## GitHub 方案调查
 
 2026-10-26 搜索候选并核对许可证、近期提交及问题响应，再自行实现接线；未复制来历不明代码。

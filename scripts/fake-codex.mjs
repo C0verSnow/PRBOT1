@@ -15,7 +15,7 @@ if (args.includes("app-server")) {
     if (request.method === "model/list") {
       if (!initialized) throw new Error("Missing initialize handshake");
       if (process.env.PRBOT_TEST_MODELS_FAILURE) process.stdout.write(JSON.stringify({ id: request.id, error: { code: -1, message: "fixture failure" } }) + "\n");
-      else process.stdout.write(JSON.stringify({ id: request.id, result: { data: request.params.cursor ? [{ model: "fixture-secondary", displayName: "CI 第二模型", isDefault: false }] : [{ model: "fixture-default", displayName: "CI 默认模型", isDefault: true }, { model: "fixture-hidden", hidden: true }], nextCursor: request.params.cursor ? null : "page-2" } }) + "\n");
+      else process.stdout.write(JSON.stringify({ id: request.id, result: { data: request.params.cursor ? [{ model: "fixture-secondary", displayName: "CI 第二模型", isDefault: false, supportedReasoningEfforts: [{ reasoningEffort: "low", description: "" }, { reasoningEffort: "high", description: "" }], defaultReasoningEffort: "low", serviceTiers: [{ id: "priority", name: "Fast", description: "" }] }] : [{ model: "fixture-default", displayName: "CI 默认模型", isDefault: true, supportedReasoningEfforts: [{ reasoningEffort: "medium", description: "" }], defaultReasoningEffort: "medium", serviceTiers: [] }, { model: "fixture-hidden", hidden: true }], nextCursor: request.params.cursor ? null : "page-2" } }) + "\n");
     }
   }
   process.exit(0);
@@ -44,7 +44,7 @@ if (prompt.includes("长任务")) {
 }
 if (prompt.includes("写入测试文件")) {
   const cwd = args[args.indexOf("--cd") + 1];
-  writeFileSync(path.join(cwd, "sdk-evidence.txt"), `written through SDK subprocess\nmodel=${args.includes("--model") ? args[args.indexOf("--model") + 1] : "default"}\n`);
+  writeFileSync(path.join(cwd, "sdk-evidence.txt"), `written through SDK subprocess\nmodel=${args.includes("--model") ? args[args.indexOf("--model") + 1] : "default"}\neffort=${args.find(a => a.startsWith("model_reasoning_effort=")) || "default"}\nspeed=${args.find(a => a.startsWith("service_tier=")) || "default"}\n`);
   emit({ type: "item.completed", item: { id: "file", type: "file_change", changes: [{ path: "sdk-evidence.txt", kind: "add" }], status: "completed" } });
 }
 emit({ type: "item.started", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "", status: "in_progress" } });
