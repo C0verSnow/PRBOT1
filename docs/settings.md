@@ -57,3 +57,17 @@ PRBOT 原创图形：深绿圆角方形、浅色终端提示符和绿色分支�
 安装后曾发现 SDK 仅提供 import 导出，require.resolve(SDK) 违反 package exports 条件；已改为定位锁文件及资源目录中的同版本 CLI，保留原失败断言并通过生产回归。模型权限仍由实际推理时确认，未使用真实凭据或付费推理。
 
 最终设置截图：[桌面](screenshots/workspace-settings.png)、[手机](screenshots/workspace-settings-mobile.png)。实际安装版：[Windows](screenshots/installed-settings-windows.png)、[macOS](screenshots/installed-settings-macos.png)、[Linux](screenshots/installed-settings-linux.png)。均来自远端执行并已查看；安装包验收与下载见 [交付记录](delivery.md#远端证据)。后续仅补充文档与截图。
+
+## Telegram 和 Infisical
+
+在 Infisical Cloud 的项目根目录、所选环境中准备 `TELEGRAM_BOT_TOKEN`、`UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN`。创建只允许读取这些密钥的 Machine Identity，并启用 Universal Auth。设置页的“Telegram 与 Infisical”中填写 Project ID、Client ID、Client Secret、环境名（默认 `prod`）及允许的 Telegram 数字用户 ID，勾选启用并单独保存。多个 ID 用逗号分隔。只处理白名单用户的私聊文字；Bot 与运行 PRBOT 的用户有相同的文件和命令权限，请仅允许可信用户。
+
+Client Secret 为连接 Infisical 必需的启动凭据，保存在本机数据目录的 `telegram-settings.json`，不返回设置页面；文件尝试使用仅当前用户可读写的权限。它以明文存储，运行 PRBOT 的用户和拥有相同权限的程序可以读取。Telegram 和 Upstash 密钥仅从 Infisical 读取，不写进本机设置；密钥约每分钟刷新。当前支持 Infisical Cloud，不支持自托管地址或根目录以外的密钥路径。
+
+PRBOT 运行期间自动长轮询；同一个 Bot Token 只能由一个实例轮询。发送 `/start` 查看提示，发送 `/new` 开始新会话，其他文字交给当前工作目录下的 Codex；切换工作目录后会使用该目录独立的会话。回复超过 Telegram 单条限制会分段。任务开始前记录 Telegram 更新，进程意外退出时不会自动重复执行该更新；可能需要用户重新发送。任务执行时无法修改设置。
+
+Upstash 记录用户 ID、用户名、聊天 ID、工作目录、消息及 Codex 线程 ID。原子写入时按记录 JSON 的 UTF-8 字节数计算，最多保留 50 MiB（52,428,800 字节），超出时从最早记录开始删除；Redis 键和内部开销不计入此数，其他应用的数据也不在此限制内。删除了会话记录后，相应线程无法再从 Telegram 恢复。会话本身由本机 Codex 管理，Upstash 不保存 Codex 的完整内部线程文件。为避免覆盖其他数据，使用独立数据库或确保 `prbot:telegram:*` 键不被其他程序修改。
+
+### GitHub 方案比较
+
+2026-10-27 检索了维护活跃且许可明确的同类项目：[grammY](https://github.com/grammyjs/grammY)（MIT，约 3,782 stars）和 [Telegraf](https://github.com/telegraf/telegraf)（MIT，约 9,202 stars）均以 TypeScript 封装 Telegram Bot API，支持长轮询；前者采用插件式中间件，后者提供完整上下文与中间件。Telegraf 的 [#2096](https://github.com/telegraf/telegraf/issues/2096) 讨论了不同上下文中的监测实例问题；grammY 的 [#970](https://github.com/grammyjs/grammY/issues/970) 讨论部署文档，均有讨论。这里借鉴它们的长轮询与消息过滤思路，因仅需私聊文字和回复，直接使用 Telegram 官方 HTTP API，不额外引入框架依赖。[Upstash redis-js](https://github.com/upstash/redis-js)（MIT，约 982 stars）使用 HTTP 访问 Redis；其 [#1455](https://github.com/upstash/redis-js/issues/1455) 报告非幂等命令自动重试可能重复执行。此处直接调用官方 REST API，不自动重试写入，使用 Redis Lua 脚本原子计数和淘汰。没有复制来源不明的代码。

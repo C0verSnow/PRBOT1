@@ -13,8 +13,18 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       NEXT_TELEMETRY_DISABLED: '1'
+      PRBOT_TEST_REDIS: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -32,6 +42,8 @@ jobs:
           node --check scripts/smoke-desktop.mjs
           node --check scripts/fake-codex.mjs
       - run: npm run typecheck
+      - name: Install Redis test client
+        run: sudo apt-get update && sudo apt-get install -y redis-tools
       - run: npm test
       - run: npm run build
       - run: npx --no-install playwright install --with-deps chromium

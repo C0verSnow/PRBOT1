@@ -10,6 +10,10 @@ export function WorkspaceSettings({ config, close, saved, blocked }: { config: P
   const [speed, setSpeed] = useState(config?.speed || "");
   const [codexPath, setCodexPath] = useState(config?.codexPath || "");
   const [codexHome, setCodexHome] = useState(config?.codexHome || "");
+  const [tg, setTg] = useState({ projectId: "", clientId: "", clientSecret: "", environment: "prod", allowedUsers: "", enabled: false, hasClientSecret: false });
+  const [tgError, setTgError] = useState("");
+  const [tgStatus, setTgStatus] = useState("");
+  const [tgSaving, setTgSaving] = useState(false);
   const [models, setModels] = useState<CodexModel[]>([]);
   const [modelError, setModelError] = useState("");
   const [error, setError] = useState("");
@@ -29,6 +33,10 @@ export function WorkspaceSettings({ config, close, saved, blocked }: { config: P
   }
   useEffect(() => {
     setDesktop(!!window.prbotDesktop);
+    fetch("/api/telegram/settings").then(async response => {
+      if (!response.ok) throw new Error("读取 Telegram 设置失败");
+      const value = await response.json(); setTg({ ...value, clientSecret: "" });
+    }).catch(() => setTgError("读取 Telegram 设置失败"));
     const controller = new AbortController(); void refresh(controller.signal);
     return () => controller.abort();
   }, []);
@@ -48,6 +56,17 @@ export function WorkspaceSettings({ config, close, saved, blocked }: { config: P
     } catch (e) { setError((e as Error).message); }
     finally { setSaving(false); }
   }
+  async function saveTelegram() {
+    setTgSaving(true); setTgError(""); setTgStatus("");
+    try {
+      const { hasClientSecret: _hasClientSecret, ...input } = tg;
+      const response = await fetch("/api/telegram/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Telegram 设置保存失败");
+      setTg({ ...data, clientSecret: "" }); setTgStatus("Telegram 设置已保存");
+    } catch (e) { setTgError((e as Error).message); }
+    finally { setTgSaving(false); }
+  }
   const selectedModel = model ? models.find(m => m.id === model) : models.find(m => m.isDefault);
   const disabled = blocked || saving || choosing;
   const changedRuntime = workspace !== config?.workspace || codexPath !== config?.codexPath || codexHome !== config?.codexHome;
@@ -61,10 +80,21 @@ export function WorkspaceSettings({ config, close, saved, blocked }: { config: P
       <p className="settings-help">速度档位可能影响费用，实际速度取决于账户和服务端。设置从下一条消息生效。</p>
       {modelError && <p role="alert" className="settings-error">{modelError}</p>}
       <details><summary>Codex 运行设置</summary><label className="settings-item"><span>Codex 程序（留空使用内置版本）</span><input aria-label="Codex 程序" value={codexPath} disabled={disabled} onChange={e => setCodexPath(e.target.value)} placeholder="可执行文件绝对路径" /></label><label className="settings-item"><span>Codex 配置目录（留空使用当前用户默认值）</span><input aria-label="Codex 配置目录" value={codexHome} disabled={disabled} onChange={e => setCodexHome(e.target.value)} placeholder="已存在的 CODEX_HOME 绝对路径" /></label></details>
+      <details><summary>Telegram 与 Infisical</summary>
+        <p className="settings-help">只接受下面列出的 Telegram 用户。Bot 使用当前项目和 Codex 的完全访问权限。Infisical Client Secret 仅保存在本机；留空保留原值。</p>
+        <label className="settings-item"><span>Infisical Project ID</span><input value={tg.projectId} disabled={disabled || tgSaving} onChange={e => setTg({ ...tg, projectId: e.target.value })} /></label>
+        <label className="settings-item"><span>Infisical Client ID</span><input value={tg.clientId} disabled={disabled || tgSaving} onChange={e => setTg({ ...tg, clientId: e.target.value })} /></label>
+        <label className="settings-item"><span>Infisical Client Secret</span><input type="password" autoComplete="new-password" value={tg.clientSecret} disabled={disabled || tgSaving} placeholder={tg.hasClientSecret ? "已保存，留空保持不变" : "填写 Client Secret"} onChange={e => setTg({ ...tg, clientSecret: e.target.value })} /></label>
+        <label className="settings-item"><span>Infisical 环境</span><input value={tg.environment} disabled={disabled || tgSaving} onChange={e => setTg({ ...tg, environment: e.target.value })} /></label>
+        <label className="settings-item"><span>允许的 Telegram 用户 ID（逗号分隔）</span><input value={tg.allowedUsers} disabled={disabled || tgSaving} onChange={e => setTg({ ...tg, allowedUsers: e.target.value })} /></label>
+        <label><input type="checkbox" checked={tg.enabled} disabled={disabled || tgSaving} onChange={e => setTg({ ...tg, enabled: e.target.checked })} /> 启用 Telegram Bot</label>
+        <button type="button" disabled={disabled || tgSaving} onClick={() => void saveTelegram()}>{tgSaving ? "正在保存…" : "保存 Telegram 设置"}</button>
+        {tgError && <p role="alert" className="settings-error">{tgError}</p>}{tgStatus && <p role="status">{tgStatus}</p>}
+      </details>
       {changedRuntime && <p className="settings-help">目录或 Codex 设置已改变。先选择“Codex 默认模型”并保存，再刷新新环境的模型列表。</p>}
       {(changedRuntime || modelError) && (model || effort || speed) && <button type="button" onClick={() => { setModel(""); setEffort(""); setSpeed(""); }} disabled={disabled}>使用 Codex 默认模型</button>}
       <div className="settings-access"><ShieldOff size={18} /><div><strong>完全访问 · 无执行隔离</strong><p>Codex 可以直接读写本机文件、执行命令和访问网络。停止任务不会撤销已经完成的操作。</p></div></div>
-      <p className="settings-help">设置保存在本机，下次启动自动恢复。运行中的任务结束后才能修改；项目切换后请新建对话，模型切换从下一条消息生效。密钥只从环境或项目 .env 读取。模型目录不代表账户一定有调用权限，权限错误会在对话中提示。</p>
+      <p className="settings-help">设置保存在本机，下次启动自动恢复。运行中的任务结束后才能修改；项目切换后请新建对话，模型切换从下一条消息生效。Codex 密钥从环境或项目 .env 读取。模型目录不代表账户一定有调用权限，权限错误会在对话中提示。</p>
       {blocked && <p role="status">请先停止或等待当前任务完成，再保存设置。</p>}
       {error && <p role="alert" className="settings-error">{error}</p>}
       <div className="dialog-actions"><button type="button" disabled={saving} onClick={close}>取消</button><button type="submit" disabled={disabled}>{saving ? "正在保存…" : "保存设置"}</button></div>
