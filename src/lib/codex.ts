@@ -1,4 +1,4 @@
-import { Codex, type ThreadEvent, type ThreadOptions } from "@openai/codex-sdk";
+import { Codex, type ThreadEvent, type ThreadOptions, type ModelReasoningEffort } from "@openai/codex-sdk";
 import { runtimeConfig } from "./config";
 import type { Activity } from "./types";
 
@@ -8,11 +8,13 @@ export async function openThread(threadId?: string) {
     apiKey: config.env.CODEX_API_KEY || config.env.OPENAI_API_KEY || undefined,
     codexPathOverride: config.codexPath || undefined,
     env: config.env,
+    config: config.speed ? { service_tier: config.speed } : undefined,
   });
   // Explicit user requirement: run on the host with no execution isolation.
   const options: ThreadOptions = {
     workingDirectory: config.workspace,
     model: config.model || undefined,
+    modelReasoningEffort: (config.effort || undefined) as ModelReasoningEffort | undefined,
     sandboxMode: "danger-full-access",
     approvalPolicy: "never",
     skipGitRepoCheck: true,

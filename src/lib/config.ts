@@ -25,10 +25,10 @@ export async function readSettings(): Promise<Partial<AppSettings>> {
   try {
     const value = JSON.parse(await readFile(settingsFile(), "utf8"));
     if (!value || value.version !== 1 || typeof value !== "object" || Array.isArray(value)) throw new Error();
-    for (const key of ["workspace", "model", "codexPath", "codexHome"])
+    for (const key of ["workspace", "model", "codexPath", "codexHome", "effort", "speed"])
       if (value[key] !== undefined && typeof value[key] !== "string") throw new Error();
     if (value.recentWorkspaces !== undefined && (!Array.isArray(value.recentWorkspaces) || value.recentWorkspaces.some((p: unknown) => typeof p !== "string"))) throw new Error();
-    return { workspace: value.workspace, model: value.model, codexPath: value.codexPath, codexHome: value.codexHome, recentWorkspaces: value.recentWorkspaces };
+    return { workspace: value.workspace, model: value.model, codexPath: value.codexPath, codexHome: value.codexHome, recentWorkspaces: value.recentWorkspaces, effort: value.effort, speed: value.speed };
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
     throw new HttpError(500, "设置文件无法读取或格式不正确，请修复 settings.json 后重试；原文件已保留");
@@ -43,6 +43,10 @@ export async function runtimeConfig(overrides: Partial<AppSettings> = {}) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw new HttpError(400, "项目 .env 无法读取，请检查格式和权限");
   }
   const model = saved.model ?? (process.env.CODEX_MODEL || project.CODEX_MODEL || "");
+  const effort = saved.effort || "";
+  const speed = saved.speed || "";
+  if (effort && !["minimal", "low", "medium", "high", "xhigh", "max", "ultra", "persistent"].includes(effort)) throw new HttpError(400, "推理强度格式不正确");
+  if (speed && !/^[a-zA-Z0-9_-]{1,50}$/.test(speed)) throw new HttpError(400, "速度档位格式不正确");
   const codexPath = saved.codexPath ?? (process.env.CODEX_PATH_OVERRIDE || project.CODEX_PATH_OVERRIDE || "");
   const codexHome = saved.codexHome ?? (process.env.CODEX_HOME || project.CODEX_HOME || "");
   if (model.length > 200 || /[\s\x00-\x1f]/.test(model)) throw new HttpError(400, "模型标识格式不正确，请重新选择");
@@ -59,12 +63,12 @@ export async function runtimeConfig(overrides: Partial<AppSettings> = {}) {
   for (const key of ["CODEX_API_KEY", "OPENAI_API_KEY"]) env[key] = process.env[key] || project[key] || "";
   if (codexHome) env.CODEX_HOME = codexHome;
   else delete env.CODEX_HOME;
-  return { workspace, model, codexPath, codexHome, env, recentWorkspaces: saved.recentWorkspaces || [] };
+  return { workspace, model, effort, speed, codexPath, codexHome, env, recentWorkspaces: saved.recentWorkspaces || [] };
 }
 export async function workspace() { return (await runtimeConfig()).workspace; }
 export async function publicConfig() {
-  const { workspace, model, codexPath, codexHome, recentWorkspaces } = await runtimeConfig();
-  return { workspace, model: model || "Codex 默认模型", modelId: model, codexPath, codexHome, recentWorkspaces, access: "danger-full-access" as const };
+  const { workspace, model, effort, speed, codexPath, codexHome, recentWorkspaces } = await runtimeConfig();
+  return { workspace, effort, speed, model: model || "Codex 默认模型", modelId: model, codexPath, codexHome, recentWorkspaces, access: "danger-full-access" as const };
 }
 // Borrowed design: electron-store's small versioned JSON + atomic replacement; see docs/settings.md.
 export async function persistSettings(settings: AppSettings) {

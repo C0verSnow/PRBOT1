@@ -9,6 +9,8 @@ test("model discovery, persistence and actual SDK model argument agree", async (
   const picker = settings.getByRole("combobox", { name: "当前模型", exact: true });
   await expect(picker).toBeEnabled();
   await picker.selectOption("fixture-secondary");
+  await settings.getByRole("combobox", { name: "Effort" }).selectOption("high");
+  await settings.getByRole("combobox", { name: "Speed" }).selectOption("priority");
   await settings.getByRole("button", { name: "保存设置", exact: true }).click();
   await expect(settings).not.toBeVisible();
   await page.reload();
@@ -16,10 +18,23 @@ test("model discovery, persistence and actual SDK model argument agree", async (
   await page.getByRole("textbox", { name: "发送给 Codex 的消息" }).fill("写入测试文件");
   await page.getByRole("button", { name: "发送消息", exact: true }).click();
   await expect(page.getByText("你好！我已连接到当前项目。")).toBeVisible();
-  expect(await readFile(path.resolve(".data/workspace/sdk-evidence.txt"), "utf8")).toContain("model=fixture-secondary");
+  const evidence = await readFile(path.resolve(".data/workspace/sdk-evidence.txt"), "utf8");
+  expect(evidence).toContain("model=fixture-secondary");
+  expect(evidence).toContain('model_reasoning_effort="high"');
+  expect(evidence).toContain('service_tier="priority"');
   await page.locator(".workspace-button").click();
   await expect(picker).toHaveValue("fixture-secondary");
-  await expect(settings.getByRole("button", { name: "保存设置", exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(settings.getByRole("combobox", { name: "Effort" })).toHaveValue("high");
+  await expect(settings.getByRole("combobox", { name: "Speed" })).toHaveValue("priority");
+  const help = settings.getByText("设置保存在本机", { exact: false });
+  await help.scrollIntoViewIfNeeded();
+  const covered = await help.evaluate(element => {
+    const rect = element.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return !!hit?.closest(".dialog-actions");
+  });
+  expect(covered).toBe(false);
+  await settings.getByRole("button", { name: "保存设置", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: info.outputPath("workspace-settings.png"), fullPage: true, animations: "disabled" });
   await picker.selectOption("");
   await settings.getByRole("button", { name: "保存设置", exact: true }).click();
