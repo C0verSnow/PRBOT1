@@ -71,3 +71,7 @@ Upstash 记录用户 ID、用户名、聊天 ID、工作目录、消息及 Codex
 ### GitHub 方案比较
 
 2026-10-27 检索了维护活跃且许可明确的同类项目：[grammY](https://github.com/grammyjs/grammY)（MIT，约 3,782 stars）和 [Telegraf](https://github.com/telegraf/telegraf)（MIT，约 9,202 stars）均以 TypeScript 封装 Telegram Bot API，支持长轮询；前者采用插件式中间件，后者提供完整上下文与中间件。Telegraf 的 [#2096](https://github.com/telegraf/telegraf/issues/2096) 讨论了不同上下文中的监测实例问题；grammY 的 [#970](https://github.com/grammyjs/grammY/issues/970) 讨论部署文档，均有讨论。这里借鉴它们的长轮询与消息过滤思路，因仅需私聊文字和回复，直接使用 Telegram 官方 HTTP API，不额外引入框架依赖。[Upstash redis-js](https://github.com/upstash/redis-js)（MIT，约 982 stars）使用 HTTP 访问 Redis；其 [#1455](https://github.com/upstash/redis-js/issues/1455) 报告非幂等命令自动重试可能重复执行。此处直接调用官方 REST API，不自动重试写入，使用 Redis Lua 脚本原子计数和淘汰。没有复制来源不明的代码。
+
+## 设置分类改版（issue #10）
+
+功能提交 `f91fce7` 的 [Web 工作流](https://github.com/C0verSnow/PRBOT1/actions/runs/40495705161)通过类型检查、单元测试、构建及桌面和手机浏览器回归；[交付工作流](https://github.com/C0verSnow/PRBOT1/actions/runs/40495705182)通过 Windows、macOS、Linux 安装验收和 Docker 验证。本机没有编译或运行测试。此次改版复用已有的设置接口和组件，没有新增不熟悉的功能或依赖，因此未另行检索 GitHub 同类项目。
