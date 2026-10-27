@@ -19,8 +19,12 @@ export interface Chat {
   title: string;
   updatedAt: string;
   threadId?: string;
+  workspace?: string;
   messages: Message[];
 }
 export type ChatSummary = Pick<Chat, "id" | "title" | "updatedAt">;
-export interface PublicConfig { workspace: string; model: string; access: "danger-full-access" }
+export interface AppSettings { workspace: string; model: string; codexPath: string; codexHome: string; recentWorkspaces: string[] }
+export interface PublicConfig extends Omit<AppSettings, "model"> { model: string; modelId: string; access: "danger-full-access" }
+export interface CodexModel { id: string; name: string; isDefault: boolean }
+declare global { interface Window { prbotDesktop?: { chooseWorkspace: () => Promise<string | null> } } }
 export type StreamEvent = { type: "snapshot"; chat: Chat } | { type: "error"; message: string };

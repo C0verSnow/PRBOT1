@@ -1,7 +1,34 @@
-import { publicConfig } from "@/lib/config";
-import { guard, failure } from "@/lib/http";
+import { directory, publicConfig, runtimeConfig, persistSettings } from "@/lib/config";
+import { body, guard, failure, HttpError } from "@/lib/http";
+import { changeSettings } from "@/lib/runtime-state";
+import { discoverModels } from "@/lib/models";
+import type { AppSettings } from "@/lib/types";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try { guard(request); return Response.json(await publicConfig()); } catch (e) { return failure(e); }
+}
+export async function PUT(request: Request) {
+  try {
+    guard(request);
+    const input = await body(request);
+    if (Object.keys(input).some(key => !["workspace", "model", "codexPath", "codexHome"].includes(key))) throw new HttpError(400, "设置中包含不支持的内容，密钥请放入 .env");
+    const update: Partial<AppSettings> = {};
+    for (const key of ["workspace", "model", "codexPath", "codexHome"] as const) {
+      if (input[key] === undefined) continue;
+      if (typeof input[key] !== "string" || input[key].length > 4096) throw new HttpError(400, "设置格式不正确");
+      update[key] = input[key].trim();
+    }
+    return Response.json(await changeSettings(async () => {
+      if (update.workspace !== undefined) update.workspace = await directory(update.workspace);
+      const config = await runtimeConfig(update);
+      if (config.model) {
+        const models = await discoverModels(update);
+        if (!models.some(model => model.id === config.model)) throw new HttpError(400, "所选模型已不在 Codex 列表中，请刷新并重新选择");
+      }
+      await persistSettings({ workspace: config.workspace, model: config.model, codexPath: config.codexPath, codexHome: config.codexHome,
+        recentWorkspaces: [config.workspace, ...config.recentWorkspaces.filter(p => p !== config.workspace)].slice(0, 10) });
+      return publicConfig();
+    }));
+  } catch (e) { return failure(e); }
 }

@@ -13,7 +13,10 @@ await writeFile(path.join(root, "app/package.json"), JSON.stringify({
   homepage: "https://github.com/C0verSnow/PRBOT1",
 }, null, 2));
 await cp("desktop/main.cjs", path.join(root, "app/main.cjs"));
+await cp("desktop/preload.cjs", path.join(root, "app/preload.cjs"));
+await cp("desktop/icons", path.join(root, "app/icons"), { recursive: true });
 await cp(".next/standalone", path.join(root, "server"), { recursive: true, dereference: true });
+await cp("public", path.join(root, "server/public"), { recursive: true });
 await cp(".next/static", path.join(root, "server/.next/static"), { recursive: true });
 
 // Explicitly copy the native package, even if Next's dependency tracer changes.

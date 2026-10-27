@@ -1,6 +1,6 @@
 // Electron utility process + Next standalone; references and tradeoffs: docs/delivery.md.
-const { app, BrowserWindow, dialog, utilityProcess } = require("electron");
-const { mkdirSync, existsSync, createWriteStream } = require("node:fs");
+const { app, BrowserWindow, dialog, utilityProcess, ipcMain } = require("electron");
+const { mkdirSync, existsSync, createWriteStream, readFileSync, writeFileSync, renameSync } = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
@@ -16,7 +16,7 @@ else {
   app.on("before-quit", () => { quitting = true; backend?.kill(); });
   app.on("window-all-closed", () => app.quit());
   app.whenReady().then(start).catch(() => {
-    dialog.showErrorBox("PRBOT 启动失败", "请检查用户配置 .env 中的目录和端口。关闭占用端口的程序后重试。");
+    dialog.showErrorBox("PRBOT 启动失败", "请检查用户目录的 .env 和 settings.json，确认项目路径、Codex 配置和端口有效。损坏的设置文件请修复或移走后重试。");
     app.quit();
   });
 }
@@ -27,8 +27,20 @@ async function start() {
   // Only read runtime user configuration, never ship a developer's .env in an installer.
   const envFile = path.join(home, ".env");
   if (existsSync(envFile)) process.loadEnvFile(envFile);
-  const workspace = path.resolve(home, process.env.CODEX_WORKSPACE || "workspace");
-  if (!process.env.CODEX_WORKSPACE) mkdirSync(workspace, { recursive: true });
+  const settingsFile = path.join(home, "settings.json");
+  const saved = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {};
+  if (existsSync(settingsFile) && (saved.version !== 1 || typeof saved.workspace !== "string")) throw new Error("Invalid settings");
+  let workspace = path.resolve(home, saved.workspace || process.env.CODEX_WORKSPACE || "workspace");
+  if (!saved.workspace && !process.env.CODEX_WORKSPACE) {
+    const selected = await dialog.showOpenDialog({ title: "选择 PRBOT 项目目录", properties: ["openDirectory"] });
+    if (!selected.canceled && selected.filePaths[0]) {
+      workspace = selected.filePaths[0];
+      // Only store non-sensitive preferences. Backend performs full validation before any task.
+      const temp = `${settingsFile}.${randomUUID()}.tmp`;
+      writeFileSync(temp, JSON.stringify({ version: 1, workspace, recentWorkspaces: [workspace] }), { mode: 0o600 });
+      renameSync(temp, settingsFile);
+    } else mkdirSync(workspace, { recursive: true });
+  }
   const server = path.join(process.resourcesPath, "server");
   const port = Number(process.env.PRBOT_DESKTOP_PORT || 43127);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error("Invalid port");
@@ -39,6 +51,7 @@ async function start() {
     cwd: home,
     env: { ...process.env, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1",
       HOSTNAME: "127.0.0.1", PORT: String(port), PRBOT_INSTANCE_ID: instance,
+      PRBOT_SETTINGS_FILE: settingsFile,
       CODEX_WORKSPACE: workspace, PRBOT_DATA_DIR: path.resolve(home, process.env.PRBOT_DATA_DIR || "chats") },
     stdio: "pipe", serviceName: "PRBOT local server",
   });
@@ -66,8 +79,8 @@ async function start() {
   }
   if (!ready || exited) throw new Error("Backend unavailable");
   window = new BrowserWindow({ width: 1280, height: 860, minWidth: 760, minHeight: 560,
-    title: "PRBOT", backgroundColor: "#f7f7f5", autoHideMenuBar: true,
-    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+    title: "PRBOT", icon: path.join(__dirname, "icons/icon.png"), backgroundColor: "#f7f7f5", autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true },
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event, url) => {
@@ -81,5 +94,10 @@ async function start() {
     callback(canWriteClipboard(permission, requestingOrigin));
   });
   window.webContents.session.setPermissionCheckHandler((_contents, permission, requestingOrigin) => canWriteClipboard(permission, requestingOrigin));
+  ipcMain.handle("prbot:choose-workspace", async event => {
+    if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== `${origin}/`) throw new Error("Unsupported sender");
+    const selected = await dialog.showOpenDialog(window, { title: "选择项目目录", properties: ["openDirectory"] });
+    return selected.canceled ? null : selected.filePaths[0] || null;
+  });
   await window.loadURL(origin);
 }

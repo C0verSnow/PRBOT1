@@ -1,16 +1,18 @@
 import { Codex, type ThreadEvent, type ThreadOptions } from "@openai/codex-sdk";
-import { workspace } from "./config";
+import { runtimeConfig } from "./config";
 import type { Activity } from "./types";
 
 export async function openThread(threadId?: string) {
+  const config = await runtimeConfig();
   const client = new Codex({
-    apiKey: process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY || undefined,
-    codexPathOverride: process.env.CODEX_PATH_OVERRIDE || undefined,
+    apiKey: config.env.CODEX_API_KEY || config.env.OPENAI_API_KEY || undefined,
+    codexPathOverride: config.codexPath || undefined,
+    env: config.env,
   });
   // Explicit user requirement: run on the host with no execution isolation.
   const options: ThreadOptions = {
-    workingDirectory: await workspace(),
-    model: process.env.CODEX_MODEL || undefined,
+    workingDirectory: config.workspace,
+    model: config.model || undefined,
     sandboxMode: "danger-full-access",
     approvalPolicy: "never",
     skipGitRepoCheck: true,
@@ -32,9 +34,9 @@ export function activity(event: ThreadEvent): Activity | undefined {
     case "error": return { ...base, title: "执行提示", detail: item.message, status: "failed" };
   }
 }
-export function readableError(error: unknown) {
+export function readableError(error: unknown, secrets: string[] = []) {
   let text = error instanceof Error ? error.message : "Codex 运行失败";
-  for (const key of [process.env.CODEX_API_KEY, process.env.OPENAI_API_KEY]) {
+  for (const key of [process.env.CODEX_API_KEY, process.env.OPENAI_API_KEY, ...secrets]) {
     if (key) text = text.split(key).join("[已隐藏密钥]");
   }
   text = text.replace(/sk-[a-zA-Z0-9_-]+/g, "[已隐藏密钥]");

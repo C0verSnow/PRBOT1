@@ -6,6 +6,7 @@ import type { ThreadEvent } from "@openai/codex-sdk";
 import { consumeStream } from "../src/lib/stream";
 import { createChat, deleteChat, getChat, listChats } from "../src/lib/store";
 import { isRunning, prepareTurn, recover, reserve, stop, streamTurn } from "../src/lib/runner";
+import { persistSettings } from "../src/lib/config";
 import { readableError } from "../src/lib/codex";
 const sdk = vi.hoisted(() => ({ options: undefined as unknown, resumed: "", make: vi.fn() }));
 vi.mock("@openai/codex-sdk", () => ({ Codex: class {
@@ -37,6 +38,17 @@ describe("Codex lifecycle and persistence", () => {
     fixture([completion]); await run(chat.id, "继续");
     expect(sdk.resumed).toBe("persisted-sdk-thread");
     expect((await getChat(chat.id)).messages).toHaveLength(4);
+  });
+  it("applies a saved model to both new and resumed SDK threads", async () => {
+    await persistSettings({ workspace: directory, model: "first-model", codexPath: "", codexHome: "", recentWorkspaces: [directory] });
+    const chat = await createChat();
+    fixture([{ type: "thread.started", thread_id: "model-switch-thread" }, completion]);
+    await run(chat.id);
+    expect(sdk.options).toMatchObject({ model: "first-model" });
+    await persistSettings({ workspace: directory, model: "second-model", codexPath: "", codexHome: "", recentWorkspaces: [directory] });
+    fixture([completion]); await run(chat.id, "换模型继续");
+    expect(sdk.resumed).toBe("model-switch-thread");
+    expect(sdk.options).toMatchObject({ model: "second-model", workingDirectory: directory });
   });
   it("rejects concurrent turns before adding another user message", async () => {
     const chat = await createChat(); const turn = await prepareTurn(chat.id, "一");

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, m } from "motion/react";
-import { ArrowDown, ArrowUp, Asterisk, Check, FolderOpen, LoaderCircle, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldOff, Square, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, FolderOpen, LoaderCircle, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Search, Settings2, ShieldOff, Square, Trash2, X } from "lucide-react";
 import { consumeStream } from "@/lib/stream";
 import { readDraft, writeDraft } from "@/lib/drafts";
 import type { Chat, ChatSummary, PublicConfig } from "@/lib/types";
@@ -198,7 +198,7 @@ export function ChatShell() {
   return <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
     {sidebar && <button className="sidebar-backdrop" aria-label="关闭侧栏" onClick={() => setSidebar(false)} />}
     <aside className={`sidebar ${sidebar ? "is-open" : ""}`} inert={mobile ? !sidebar : collapsed}>
-      <div className="sidebar-brand"><span className="brand-mark"><Asterisk size={23} strokeWidth={1.7} /></span><span>PRBOT<span className="brand-dot">.</span></span>
+      <div className="sidebar-brand"><span className="brand-mark"><img src="/prbot.svg" alt="" width={27} height={27} /></span><span>PRBOT<span className="brand-dot">.</span></span>
         <button className="icon-button desktop-only" aria-label="收起侧栏" onClick={toggleSidebar}><PanelLeftClose size={16} /></button>
         <button className="icon-button mobile-only" aria-label="关闭侧栏" onClick={() => setSidebar(false)}><X size={18} /></button>
       </div>
@@ -250,7 +250,7 @@ export function ChatShell() {
       </div>
     </main>
     <AnimatePresence>{notice && <m.div className="toast" key={notice} role="status" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}><Check size={15} />{notice}</m.div>}</AnimatePresence>
-    {settings && <WorkspaceSettings config={config} close={() => setSettings(false)} />}
+    {settings && <WorkspaceSettings config={config} blocked={blocked} close={() => setSettings(false)} saved={value => { setConfig(value); setNotice("设置已保存，下次启动自动恢复"); if (value.workspace !== config?.workspace) newChat(); }} />}
     {switcher && <QuickSwitcher chats={chats} blocked={blocked} close={() => setSwitcher(false)} openChat={id => void load(id)} newChat={newChat} settings={() => setSettings(true)} />}
     {deleting && <DialogFrame title="删除这段对话？" close={() => { if (!loading) setDeleting(null); }} className="delete-dialog"><p className="delete-description">“{deleting.title}”的聊天记录将被删除。已经修改的项目文件会保留。</p><div className="dialog-actions"><button disabled={loading} onClick={() => setDeleting(null)}>保留对话</button><button className="destructive-button" disabled={loading} onClick={() => void remove()}>{loading ? "正在删除…" : "删除记录"}</button></div></DialogFrame>}
   </div>;

@@ -35,15 +35,15 @@
 
 ## 桌面使用
 
-下载对应 artifact 并解压，安装 exe、打开 dmg 或安装 deb。无需另装 Node。默认在用户目录新建 workspace，不把安装目录当作项目。
+下载对应 artifact 并解压，安装 exe、打开 dmg 或安装 deb。无需另装 Node。首次没有目录设置时弹出原生目录选择框；取消后在用户目录新建 workspace。
 
-配置放在以下目录的 .env，变量沿用仓库 .env.example，重启后生效：
+配置放在以下目录的 .env，变量沿用仓库 .env.example，启动前加载；项目 .env 也自动读取，具体规则见 [设置说明](settings.md)：
 
 - Windows：`%APPDATA%/PRBOT/.env`
 - macOS：`~/Library/Application Support/PRBOT/.env`
 - Linux：`~/.config/PRBOT/.env`（遵循 XDG_CONFIG_HOME）
 
-设置 `CODEX_WORKSPACE=/你的项目绝对路径`，可选 `CODEX_API_KEY`、`CODEX_MODEL`。环境变量优先于配置文件；配置不打入安装包。聊天默认保存在同目录的 chats，草稿存在 Electron 浏览器配置。复用当前用户 Codex 登录时无需 key。
+设置 `CODEX_WORKSPACE=/你的项目绝对路径`，可选 `CODEX_API_KEY`、`CODEX_MODEL`。已保存设置优先于启动环境和项目 .env，工作空间内保存后下一条任务生效；配置不打入安装包。聊天默认保存在同目录的 chats，草稿存在 Electron 浏览器配置。复用当前用户 Codex 登录时无需 key。
 
 服务只监听 `127.0.0.1:43127`，不会连接占用该端口的其他程序。可用 `PRBOT_DESKTOP_PORT` 设置 1024–65535 的端口；更改端口会改变浏览器 origin，旧草稿仍留在原 origin。只允许单实例；关窗口会停止后台服务。渲染器关闭 Node 集成、启用上下文隔离和沙箱，拒绝外部跳转和新窗口；仅允许本应用写剪贴板以保留复制功能，拒绝剪贴板读取及其他权限。用户目录中的 server.log 保留最近一次启动日志。
 
@@ -72,16 +72,20 @@ docker compose exec prbot sh -c 'node node_modules/@openai/codex/bin/codex.js lo
 
 ## 远端证据
 
-功能提交 `bad18e2` 的 [交付验收](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485)五个任务全部成功；[Web 完整回归](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387490)通过 34 个单元测试、14 个桌面/手机浏览器测试、类型检查、生产构建与全依赖审计（0 个已知漏洞）。此后只更新文档与安装截图。
+issue #4 功能提交 `a9dd068` 的 [交付验收 40327399604](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399604)五个任务全部成功；[Web 完整回归 40327399614](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399614)通过 44 个单元测试、20 个桌面/手机浏览器测试、JavaScript 语法、类型检查、生产构建和全依赖审计（0 个已知漏洞）。最后仅追加文档、带时间戳的记录及原始截图。
 
 | 交付内容 | 下载（保留 30 天，包含 SHA256SUMS.txt） |
 | --- | --- |
-| Windows x64 `.exe` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12631679743) |
-| macOS Intel `.dmg` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12631988942) |
-| macOS Apple Silicon `.dmg` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12631634202) |
-| Linux amd64 `.deb` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12631844585) |
-| Docker linux/amd64 镜像归档 | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485/artifacts/12632003482) |
+| Windows x64 `.exe` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399604/artifacts/12651519478) |
+| macOS Intel `.dmg` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399604/artifacts/12653025755) |
+| macOS Apple Silicon `.dmg` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399604/artifacts/12653645269) |
+| Linux amd64 `.deb` | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399604/artifacts/12652371669) |
+| Docker linux/amd64 镜像归档 | [下载 artifact](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399604/artifacts/12652490815) |
 
-已实际查看并保存原始安装版截图：[Windows](screenshots/installed-windows.png)、[macOS](screenshots/installed-macos.png)、[Linux](screenshots/installed-linux.png)。Linux 的中文字体方框已修复并在最终截图确认。
+已查看并保存新设置在安装版中的原始截图：[Windows](screenshots/installed-settings-windows.png)、[macOS](screenshots/installed-settings-macos.png)、[Linux](screenshots/installed-settings-linux.png)。[浏览器桌面设置](screenshots/workspace-settings.png)与[手机设置](screenshots/workspace-settings-mobile.png)也已检查，保存按钮完整可见。此前版本首页截图继续保留。
 
-桌面验证了交付后的 SDK/CLI、界面、复制、聊天写入、退出、重启后的聊天与草稿恢复。容器验证了非 root 运行、原生 CLI、跨站拒绝、SDK 替身文件写入，以及删除重建容器后的聊天恢复。未使用真实账户或付费模型，未在本机运行构建、编译、测试或开发服务。
+四种桌面安装包均验证了用户 .env 自动加载、真实内置 Codex 的模型列表、preload/IPC 原生目录选择和取消、保存后的项目路径、退出、重启后的设置/聊天/草稿恢复，以及品牌资源加载。浏览器和 SDK 用例另外确认选择的模型确实传给新建/恢复线程。目录对话框的返回值由 CI 控制；模型目录成功不等于账户有付费推理权限。
+
+容器验证了非 root 运行、原生 CLI、跨站拒绝、SDK 替身文件写入，以及删除重建容器后的聊天恢复。未使用真实账户或付费推理，未在本机运行构建、编译、测试或开发服务。
+
+此前交付基线为 `bad18e2` 的 [运行 40280387485](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485)；以上链接为 issue #4 的新产物。用户撤回了架构/CI 提速的追加讨论，因此继续保持 Windows/Linux x64 与 macOS x64/arm64 的现有分类。
