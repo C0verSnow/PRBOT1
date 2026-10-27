@@ -70,3 +70,21 @@ test("production server discovers models with its actual bundled Codex", async (
     expect((await update(path.resolve("scripts/fake-codex.mjs"))).status()).toBe(200);
   }
 });
+test("Telegram settings save without showing the stored client secret", async ({ page }) => {
+  await page.goto("/");
+  const loaded = page.waitForResponse(response => response.url().endsWith("/api/telegram/settings") && response.request().method() === "GET");
+  await page.locator(".workspace-button").click();
+  await loaded;
+  const dialog = page.getByRole("dialog", { name: "工作空间" });
+  await dialog.getByText("Telegram 与 Infisical").click();
+  await dialog.getByLabel("Infisical Project ID").fill("fixture-project");
+  await dialog.getByLabel("Infisical Client ID").fill("fixture-client");
+  await dialog.getByLabel("Infisical Client Secret").fill("fixture-secret");
+  await dialog.getByLabel("允许的 Telegram 用户 ID（逗号分隔）").fill("123456");
+  await dialog.getByRole("button", { name: "保存 Telegram 设置" }).click();
+  await expect(dialog.getByText("Telegram 设置已保存")).toBeVisible();
+  await expect(dialog.getByLabel("Infisical Client Secret")).toHaveValue("");
+  await expect(dialog.getByLabel("Infisical Client Secret")).toHaveAttribute("placeholder", "已保存，留空保持不变");
+  const result = await page.request.get("/api/telegram/settings");
+  expect(await result.text()).not.toContain("fixture-secret");
+});
