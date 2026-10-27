@@ -33,3 +33,17 @@
 - [macOS 回归 40510914197](https://github.com/C0verSnow/PRBOT1/actions/runs/40510914197/job/122212567022)：对尚未修改签名配置的真实 DMG 执行 `codesign --verify --deep --strict`，报 `code has no resources but signature indicates they must be present`。确认旧产物签名无效，既有启动测试没有检查这一层。
 
 两次更早的 macOS 检查分别暴露了检查脚本仅识别旧 Codex 路径、`lipo` 参数顺序错误；已先纠正检查脚本，再取得上述真正的签名失败证据。没有把检查脚本的错误当作产品故障，也没有放宽签名和布局断言。
+
+## 修复后的 Web 证据
+
+最终功能提交 `8fc1ae5` 的 [Web 回归 40512390906](https://github.com/C0verSnow/PRBOT1/actions/runs/40512390906)通过类型检查、54 项单元测试、26 项浏览器回归、生产构建与依赖审计。设置切换、手机和矮窗口、超长内容滚动断言全部通过；四项新单元用例验证 .env、损坏的设置、非法端口和后台提前退出时的诊断信息，不泄漏原始配置内容。本机没有编译、启动项目或运行项目测试。
+
+从远端取回并实际查看了最终截图：[桌面](screenshots/issue-12-desktop.png)、[矮窗口](screenshots/issue-12-short-window.png)、[手机](screenshots/issue-12-mobile.png)。检查中曾发现桌面“刷新模型”按钮被挤成两行，已修正并重新通过这轮回归；此后的提交只补充文档和原始截图。
+
+## 修复后的交付证据
+
+同一功能提交 `8fc1ae5` 的 [交付回归 40512390912](https://github.com/C0verSnow/PRBOT1/actions/runs/40512390912)全部通过：Windows x64、macOS arm64、Linux x64 和 Docker。安装包和镜像归档在该运行的 artifacts 下载，均附 SHA256SUMS.txt。
+
+macOS 最终 DMG 内的应用通过严格签名验证，日志为 `valid on disk`、`satisfies its Designated Requirement`；`macos-integrity.json` 显示 `Signature=adhoc`、arm64、资源封存 1439 个文件，以及实际内置 `codex-cli 0.164.0`。其后 UI、后台健康检查、模型发现、目录选择、设置保存、四分类几何稳定、退出和重启持久化验收全部通过。[macOS 安装版截图](screenshots/issue-12-installed-macos.png)已取回查看。
+
+这证明修复了旧产物的无效签名，没有证明 Apple 已公证，也没有替代用户那台 Mac 的实际首次打开。首次打开仍按[安装说明](delivery.md#macos-首次打开和应用已损坏)处理。本机全程未进行编译或项目运行验证。

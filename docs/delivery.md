@@ -53,6 +53,8 @@
 
 本轮修复使用 builder 自身的临时签名流程，完整封存修改后的应用、Electron helpers 和资源，关闭不适合无证书分发的 hardened runtime。PR 交付任务仅针对无凭据的临时签名显式允许 `CSC_FOR_PULL_REQUEST`，否则 builder 会跳过 PR 的签名。最终 DMG 验收执行 `codesign --verify --deep --strict`，并核对主程序和实际内置 Codex 的 arm64 架构，随后启动真实产物。没有使用开发者证书，也没有伪造公证成功。
 
+issue #12 的最终功能提交 `8fc1ae5` 已通过 [交付回归 40512390912](https://github.com/C0verSnow/PRBOT1/actions/runs/40512390912)：Windows、macOS arm64、Linux 安装启动及 Docker 全部成功。macOS 严格签名校验和实际内置 Codex 均通过，[截图和详细证据](issue-12.md#修复后的交付证据)已记录；在该运行下载新安装包，旧包不会自动修复。
+
 如果提示无法验证开发者或 Apple 无法检查恶意软件，尝试打开后，到“系统设置 → 隐私与安全性”点击“仍要打开”，再确认。步骤依据 [Apple 官方说明](https://support.apple.com/en-us/102445)，仅对已确认来源且校验一致的产物操作。
 
 如果系统仍用“已损坏”拦截，先对已复制的应用执行：
