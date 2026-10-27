@@ -26,6 +26,8 @@
 
 设置对话框左侧为四个分类，右侧内容独立滚动。Codex 模型、速度、推理强度和程序/配置目录更改后自动保存；失败时显示错误并可重试。关闭时会先保存尚未提交的改动。更换 Codex 程序或配置目录会重置模型、速度和推理强度，再刷新新环境的模型列表。工作空间仍需手动保存；切换项目时会重置模型配置。远端测试覆盖模型元数据、非法选项、保存恢复、SDK 参数和桌面/手机滚动。
 
+issue #12 将桌面弹窗统一为 820 × 700 CSS 像素，以原来完整 Codex 设置页为基准；宽度最多为视口减去 32 像素，高度最多为视口高度的 85%。四个分类反复切换时外框居中且尺寸不变，标题和导航不随右侧内容滚动。小屏幕按相同上限缩小，右侧长内容、错误提示和按钮在内部换行、滚动。实现和远端回归范围见 [issue #12 记录](issue-12.md)。
+
 本次查阅 [Codex 0.164.0 的模型协议](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/app-server-protocol/schema/json/v2/ModelListResponse.json)、[SDK 参数](https://github.com/openai/codex/blob/rust-v0.164.0/sdk/typescript/src/codexOptions.ts) 与 [配置定义](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/config/src/config_toml.rs)。沿用下方已比较的活跃 Apache-2.0 项目 Codex 与 MIT 的 Electron / electron-store，无新增依赖；上游 [速度档位可能被服务端降级](https://github.com/openai/codex/issues/32191)，因此不承诺实际速度。
 
 远端验证：功能提交 `b52d9c7` 的 [Web 工作流](https://github.com/C0verSnow/PRBOT1/actions/runs/40429116668)通过 44 项单元测试、20 项桌面/手机浏览器测试、类型检查、构建与依赖审计；[交付工作流](https://github.com/C0verSnow/PRBOT1/actions/runs/40429116723)通过 Windows、两种 macOS、Linux 安装验收和 Docker。Intel Mac 首次产物上传超时，单项重跑成功。本机没有编译或运行项目测试。

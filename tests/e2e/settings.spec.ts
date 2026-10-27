@@ -33,6 +33,8 @@ test("settings keep their frame and navigation fixed while only the content scro
       expect(await dialog.evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
     }
     await nav.getByRole("button", { name: "Codex 运行设置" }).click();
+    await content.evaluate(element => { element.scrollTop = 0; });
+    await page.screenshot({ path: info.outputPath(`stable-settings-${viewport.width}x${viewport.height}.png`), animations: "disabled" });
     // Force overflow even on tall displays; this also covers a long validation/error message.
     await content.evaluate(element => {
       const extra = document.createElement("p");
@@ -47,7 +49,6 @@ test("settings keep their frame and navigation fixed while only the content scro
     expect(await dialog.evaluate(element => element.scrollTop)).toBe(0);
     expect(await nav.evaluate(element => element.scrollTop)).toBe(0);
     expect(await content.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await page.screenshot({ path: info.outputPath(`stable-settings-${viewport.width}x${viewport.height}.png`), animations: "disabled" });
     await dialog.getByRole("button", { name: "关闭设置" }).click();
   }
 });

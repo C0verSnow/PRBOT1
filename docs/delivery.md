@@ -25,11 +25,11 @@
 | 产物 | 架构 | 验收 |
 | --- | --- | --- |
 | Windows NSIS exe | x64 | 静默安装后启动已安装 PRBOT.exe |
-| macOS dmg | Apple Silicon arm64 | 挂载真实 DMG，从只读映像启动 app |
+| macOS dmg | Apple Silicon arm64 | 挂载真实 DMG，检查最终应用签名及 Electron / Codex 架构，再启动 app |
 | Debian deb | amd64 | 解包 deb，从交付资源启动，Xvfb 中验证界面 |
 | Docker tar.gz 镜像归档 | linux/amd64 | 创建容器，HTTP → SDK → CLI 替身 → 工作目录写文件，重建容器后验证聊天保留 |
 
-每份 Actions artifact 附 SHA256SUMS.txt，保留 30 天；桌面截图另存 desktop-evidence。Windows/macOS 未签名、未公证，系统可能要求确认来源。本轮没有签名证书，也没有自动更新。
+每份 Actions artifact 附 SHA256SUMS.txt，保留 30 天；桌面截图另存 desktop-evidence。Windows 未签名；macOS 使用 ad-hoc 临时签名，没有 Developer ID 签名、Apple 公证或自动更新。首次打开仍可能需要手动允许，不能把签名完整性校验通过等同于通过 Gatekeeper。
 
 桌面验收覆盖 UI、工作目录、创建聊天、关闭后服务停止、重新打开后聊天和草稿恢复，并检查实际内置 CLI。原有 Web 回归覆盖模型替身执行、停止等完整行为；不等于真实账户推理验收。
 
@@ -46,6 +46,31 @@
 设置 `CODEX_WORKSPACE=/你的项目绝对路径`，可选 `CODEX_API_KEY`、`CODEX_MODEL`。已保存设置优先于启动环境和项目 .env，工作空间内保存后下一条任务生效；配置不打入安装包。聊天默认保存在同目录的 chats，草稿存在 Electron 浏览器配置。复用当前用户 Codex 登录时无需 key。
 
 服务只监听 `127.0.0.1:43127`，不会连接占用该端口的其他程序。可用 `PRBOT_DESKTOP_PORT` 设置 1024–65535 的端口；更改端口会改变浏览器 origin，旧草稿仍留在原 origin。只允许单实例；关窗口会停止后台服务。渲染器关闭 Node 集成、启用上下文隔离和沙箱，拒绝外部跳转和新窗口；仅允许本应用写剪贴板以保留复制功能，拒绝剪贴板读取及其他权限。用户目录中的 server.log 保留最近一次启动日志。
+
+### macOS 首次打开和“应用已损坏”
+
+下载 `PRBOT-macos-arm64` artifact，解压后先在该目录执行 `shasum -a 256 -c SHA256SUMS.txt`。打开 DMG，把 PRBOT 拖到“应用程序”，退出旧版本后再打开新版本。不要仅凭“已损坏”几个字认定芯片不兼容；[issue #12 的截图和调查](issue-12.md)对应的是系统在应用启动前拦截。
+
+本轮修复使用 builder 自身的临时签名流程，完整封存修改后的应用、Electron helpers 和资源，关闭不适合无证书分发的 hardened runtime。PR 交付任务仅针对无凭据的临时签名显式允许 `CSC_FOR_PULL_REQUEST`，否则 builder 会跳过 PR 的签名。最终 DMG 验收执行 `codesign --verify --deep --strict`，并核对主程序和实际内置 Codex 的 arm64 架构，随后启动真实产物。没有使用开发者证书，也没有伪造公证成功。
+
+如果提示无法验证开发者或 Apple 无法检查恶意软件，尝试打开后，到“系统设置 → 隐私与安全性”点击“仍要打开”，再确认。步骤依据 [Apple 官方说明](https://support.apple.com/en-us/102445)，仅对已确认来源且校验一致的产物操作。
+
+如果系统仍用“已损坏”拦截，先对已复制的应用执行：
+
+```sh
+codesign --verify --deep --strict --verbose=2 "/Applications/PRBOT.app"
+```
+
+校验失败就停止使用并重新下载，保留错误信息。只有从本仓库下载、SHA256 和上述签名校验均通过，而且确认接受这个未公证版本时，才可在终端移除**这一份应用**的下载隔离标记，然后再次打开：
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/PRBOT.app"
+open "/Applications/PRBOT.app"
+```
+
+这个命令不验证开发者身份，也不等于 Apple 公证，不关闭全局 Gatekeeper，不需要 `sudo`。受管理的 Mac 可能仍被系统策略阻止。CI 能证明安装包在当前 macOS arm64 runner 的完整性和运行情况；用户报告的那台 Mac 仍需要实际首次打开确认。
+
+如果已经进入应用后才出现“PRBOT 启动失败”，提示会给出失败阶段、系统架构、诊断文件和后台日志位置。`~/Library/Application Support/PRBOT/startup-error.json` 只记录最近一次失败的阶段、架构、版本、时间和后台退出码，不记录原始异常或 .env / settings.json 内容。`server.log` 保留最近一次后台启动输出；如果本次在后台启动前就失败，它可能仍是上次日志。
 
 ## Docker 使用
 

@@ -36,6 +36,10 @@ jobs:
       - run: npm run build
       - run: npm run desktop:stage
       - name: Package on native operating system
+        env:
+          # PR builds contain no signing secrets. Explicitly permit ad-hoc signing;
+          # otherwise builder skips signing all pull-request artifacts.
+          CSC_FOR_PULL_REQUEST: ${{ runner.os == 'macOS' && 'true' || 'false' }}
         run: npm run desktop:pack -- ${{ matrix.target }}
       - name: Install Windows exe
         if: runner.os == 'Windows'
