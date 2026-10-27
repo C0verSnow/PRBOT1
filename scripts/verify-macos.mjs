@@ -11,7 +11,7 @@ if (!executable || !resources) throw new Error("Installed application paths requ
 const app = path.resolve(path.dirname(executable), "../..");
 const openai = path.join(resources, "server/node_modules/@openai");
 const files = await readdir(openai, { recursive: true });
-const codex = files.find(file => file.endsWith("vendor/aarch64-apple-darwin/codex/codex"));
+const codex = files.find(file => /vendor\/aarch64-apple-darwin\/(?:bin|codex)\/codex$/.test(file));
 if (!codex) throw new Error("Installed macOS arm64 Codex executable missing");
 const native = path.join(openai, codex);
 for (const binary of [executable, native]) execFileSync("lipo", ["-verify_arch", "arm64", binary], { stdio: "inherit" });
