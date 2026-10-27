@@ -250,7 +250,7 @@ export function ChatShell() {
       </div>
     </main>
     <AnimatePresence>{notice && <m.div className="toast" key={notice} role="status" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}><Check size={15} />{notice}</m.div>}</AnimatePresence>
-    {settings && <WorkspaceSettings config={config} blocked={blocked} close={() => setSettings(false)} saved={value => { setConfig(value); setNotice("设置已保存，下次启动自动恢复"); if (value.workspace !== config?.workspace) newChat(); }} />}
+    {settings && config && <WorkspaceSettings config={config} blocked={blocked} close={() => setSettings(false)} saved={value => { setConfig(value); setNotice("设置已保存，下次启动自动恢复"); if (value.workspace !== config?.workspace) newChat(); }} />}
     {switcher && <QuickSwitcher chats={chats} blocked={blocked} close={() => setSwitcher(false)} openChat={id => void load(id)} newChat={newChat} settings={() => setSettings(true)} />}
     {deleting && <DialogFrame title="删除这段对话？" close={() => { if (!loading) setDeleting(null); }} className="delete-dialog"><p className="delete-description">“{deleting.title}”的聊天记录将被删除。已经修改的项目文件会保留。</p><div className="dialog-actions"><button disabled={loading} onClick={() => setDeleting(null)}>保留对话</button><button className="destructive-button" disabled={loading} onClick={() => void remove()}>{loading ? "正在删除…" : "删除记录"}</button></div></DialogFrame>}
   </div>;

@@ -4,6 +4,8 @@
 - [1793091019] 完成 issue #8：调整交付、接入 Telegram、Upstash 和 Infisical，并更新文档与测试。
 
 ## 做完：
+- [1793100935] PR #11 已转为待审，issue #10 已按要求关闭；PR 尚未合并。
+- [1793100908] 完成 issue #10 的设置分类、Codex 自动保存、说明和回归用例；功能提交 f91fce7 的 Web、Windows、macOS、Linux 和 Docker 远端验证通过。
 - [1793091250] 加入设置页、密钥读取、Telegram 长轮询和 Upstash 滚动存储代码，并补充验证与文档。
 - [1793091175] 新增 Telegram 设置服务端接口，凭据单独保存在本机，不返回客户端密钥。
 - [1793091069] 确认 Telegram 用户白名单，以及仅保留本应用最近 50 MB Telegram 数据的要求。

@@ -24,7 +24,7 @@
 
 设置页在模型旁显示 Speed 和 Effort。选项来自所选模型的官方 `model/list`，默认模型使用列表标记的默认项；切换模型会重置这两项。留空时沿用 Codex 自身配置，速度中的“标准”显式请求 default，其他档位来自模型目录。保存前重新查询目标环境并校验，旧设置文件缺少字段时继续使用 Codex 默认。模型或运行环境变化时，请重新选择；任务开始或续聊时，SDK 接收推理强度，服务档位通过 SDK 的 `config.service_tier` 传给 CLI。服务端可能降级请求，账户权限、费用和实际速度以服务提供方为准。
 
-设置对话框的操作按钮随内容滚动，避免遮住说明文字；需要时向下滚动即可保存。远端测试覆盖模型元数据、非法选项、保存恢复、SDK 参数和桌面/手机滚动。
+设置对话框左侧为四个分类，右侧内容独立滚动。Codex 模型、速度、推理强度和程序/配置目录更改后自动保存；失败时显示错误并可重试。关闭时会先保存尚未提交的改动。更换 Codex 程序或配置目录会重置模型、速度和推理强度，再刷新新环境的模型列表。工作空间仍需手动保存；切换项目时会重置模型配置。远端测试覆盖模型元数据、非法选项、保存恢复、SDK 参数和桌面/手机滚动。
 
 本次查阅 [Codex 0.164.0 的模型协议](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/app-server-protocol/schema/json/v2/ModelListResponse.json)、[SDK 参数](https://github.com/openai/codex/blob/rust-v0.164.0/sdk/typescript/src/codexOptions.ts) 与 [配置定义](https://github.com/openai/codex/blob/rust-v0.164.0/codex-rs/config/src/config_toml.rs)。沿用下方已比较的活跃 Apache-2.0 项目 Codex 与 MIT 的 Electron / electron-store，无新增依赖；上游 [速度档位可能被服务端降级](https://github.com/openai/codex/issues/32191)，因此不承诺实际速度。
 
@@ -60,7 +60,7 @@ PRBOT 原创图形：深绿圆角方形、浅色终端提示符和绿色分支�
 
 ## Telegram 和 Infisical
 
-在 Infisical Cloud 的项目根目录、所选环境中准备 `TELEGRAM_BOT_TOKEN`、`UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN`。创建只允许读取这些密钥的 Machine Identity，并启用 Universal Auth。设置页的“Telegram 与 Infisical”中填写 Project ID、Client ID、Client Secret、环境名（默认 `prod`）及允许的 Telegram 数字用户 ID，勾选启用并单独保存。多个 ID 用逗号分隔。只处理白名单用户的私聊文字；Bot 与运行 PRBOT 的用户有相同的文件和命令权限，请仅允许可信用户。
+在 Infisical Cloud 的项目根目录、所选环境中准备 `TELEGRAM_BOT_TOKEN`、`UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN`。创建只允许读取这些密钥的 Machine Identity，并启用 Universal Auth。设置页分为“工作空间”“Codex 运行设置”“Telegram”“Infisical”四个分类。在 Infisical 中填写 Project ID、Client ID、Client Secret 和环境名（默认 `prod`）；在 Telegram 中填写允许的 Telegram 数字用户 ID 并选择是否启用。两页共享同一份设置，可在任一页保存。多个 ID 用逗号分隔。只处理白名单用户的私聊文字；Bot 与运行 PRBOT 的用户有相同的文件和命令权限，请仅允许可信用户。
 
 Client Secret 为连接 Infisical 必需的启动凭据，保存在本机数据目录的 `telegram-settings.json`，不返回设置页面；文件尝试使用仅当前用户可读写的权限。它以明文存储，运行 PRBOT 的用户和拥有相同权限的程序可以读取。Telegram 和 Upstash 密钥仅从 Infisical 读取，不写进本机设置；密钥约每分钟刷新。当前支持 Infisical Cloud，不支持自托管地址或根目录以外的密钥路径。
 
@@ -71,3 +71,7 @@ Upstash 记录用户 ID、用户名、聊天 ID、工作目录、消息及 Codex
 ### GitHub 方案比较
 
 2026-10-27 检索了维护活跃且许可明确的同类项目：[grammY](https://github.com/grammyjs/grammY)（MIT，约 3,782 stars）和 [Telegraf](https://github.com/telegraf/telegraf)（MIT，约 9,202 stars）均以 TypeScript 封装 Telegram Bot API，支持长轮询；前者采用插件式中间件，后者提供完整上下文与中间件。Telegraf 的 [#2096](https://github.com/telegraf/telegraf/issues/2096) 讨论了不同上下文中的监测实例问题；grammY 的 [#970](https://github.com/grammyjs/grammY/issues/970) 讨论部署文档，均有讨论。这里借鉴它们的长轮询与消息过滤思路，因仅需私聊文字和回复，直接使用 Telegram 官方 HTTP API，不额外引入框架依赖。[Upstash redis-js](https://github.com/upstash/redis-js)（MIT，约 982 stars）使用 HTTP 访问 Redis；其 [#1455](https://github.com/upstash/redis-js/issues/1455) 报告非幂等命令自动重试可能重复执行。此处直接调用官方 REST API，不自动重试写入，使用 Redis Lua 脚本原子计数和淘汰。没有复制来源不明的代码。
+
+## 设置分类改版（issue #10）
+
+功能提交 `f91fce7` 的 [Web 工作流](https://github.com/C0verSnow/PRBOT1/actions/runs/40495705161)通过类型检查、单元测试、构建及桌面和手机浏览器回归；[交付工作流](https://github.com/C0verSnow/PRBOT1/actions/runs/40495705182)通过 Windows、macOS、Linux 安装验收和 Docker 验证。本机没有编译或运行测试。此次改版复用已有的设置接口和组件，没有新增不熟悉的功能或依赖，因此未另行检索 GitHub 同类项目。
