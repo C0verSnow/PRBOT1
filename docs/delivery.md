@@ -25,7 +25,7 @@
 | 产物 | 架构 | 验收 |
 | --- | --- | --- |
 | Windows NSIS exe | x64 | 静默安装后启动已安装 PRBOT.exe |
-| macOS dmg | Intel x64、Apple Silicon arm64 各一份 | 挂载真实 DMG，从只读映像启动 app |
+| macOS dmg | Apple Silicon arm64 | 挂载真实 DMG，从只读映像启动 app |
 | Debian deb | amd64 | 解包 deb，从交付资源启动，Xvfb 中验证界面 |
 | Docker tar.gz 镜像归档 | linux/amd64 | 创建容器，HTTP → SDK → CLI 替身 → 工作目录写文件，重建容器后验证聊天保留 |
 
@@ -72,6 +72,8 @@ docker compose exec prbot sh -c 'node node_modules/@openai/codex/bin/codex.js lo
 
 ## 远端证据
 
+以下是历史验收记录，其中的 Intel Mac 产物来自旧工作流；当前工作流不再构建 Intel Mac。
+
 issue #4 功能提交 `a9dd068` 的 [交付验收 40327399604](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399604)五个任务全部成功；[Web 完整回归 40327399614](https://github.com/C0verSnow/PRBOT1/actions/runs/40327399614)通过 44 个单元测试、20 个桌面/手机浏览器测试、JavaScript 语法、类型检查、生产构建和全依赖审计（0 个已知漏洞）。最后仅追加文档、带时间戳的记录及原始截图。
 
 | 交付内容 | 下载（保留 30 天，包含 SHA256SUMS.txt） |
@@ -88,4 +90,4 @@ issue #4 功能提交 `a9dd068` 的 [交付验收 40327399604](https://github.co
 
 容器验证了非 root 运行、原生 CLI、跨站拒绝、SDK 替身文件写入，以及删除重建容器后的聊天恢复。未使用真实账户或付费推理，未在本机运行构建、编译、测试或开发服务。
 
-此前交付基线为 `bad18e2` 的 [运行 40280387485](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485)；以上链接为 issue #4 的新产物。用户撤回了架构/CI 提速的追加讨论，因此继续保持 Windows/Linux x64 与 macOS x64/arm64 的现有分类。
+此前交付基线为 `bad18e2` 的 [运行 40280387485](https://github.com/C0verSnow/PRBOT1/actions/runs/40280387485)；以上链接为 issue #4 的新产物。当前交付保留 Windows/Linux x64 与 macOS arm64。
