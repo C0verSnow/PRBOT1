@@ -59,7 +59,7 @@ try {
   // Exercise the restricted preload -> IPC -> native dialog path, with OS UI result controlled by CI.
   await application.evaluate(({ dialog }, chosen) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] }); }, selected);
   await page.locator(".workspace-button").click();
-  const settings = page.getByRole("dialog", { name: "工作空间" });
+  const settings = page.getByRole("dialog", { name: "设置" });
   await settings.getByRole("button", { name: "选择目录", exact: true }).click();
   await expect(settings.getByRole("textbox", { name: "项目目录", exact: true })).toHaveValue(selected);
   await settings.getByRole("button", { name: "保存设置", exact: true }).click();

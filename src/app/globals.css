@@ -326,3 +326,23 @@ kbd { font-family:inherit; font-size:10px; font-weight:400; color:#929a8d; line-
 
 .workspace-dialog .settings-item>span,.workspace-dialog .settings-help { color:#68755f; }
 .workspace-dialog .dialog-actions { padding:12px 0 4px; }
+
+/* The navigation stays visible while the selected settings panel scrolls. */
+.workspace-dialog { width:820px; overflow:hidden; }
+.workspace-dialog > div { display:flex; flex-direction:column; max-height:calc(85dvh - 48px); }
+.settings-layout { display:grid; grid-template-columns:190px minmax(0, 1fr); min-height:0; border-top:1px solid var(--line); }
+.settings-nav { display:flex; flex-direction:column; gap:8px; padding:18px 14px 18px 0; border-right:1px solid var(--line); }
+.settings-nav button { text-align:left; padding:13px 12px; border:1px solid var(--line); border-radius:9px; background:#fafbf8; color:#627256; font:inherit; font-size:12px; }
+.settings-nav button.selected { border-color:#91ae7e; background:#eaf2e3; color:#314e25; font-weight:600; }
+.settings-nav button:focus-visible { outline:2px solid #668c52; outline-offset:2px; }
+.settings-content { overflow:auto; min-height:0; padding:10px 4px 14px 22px; }
+.settings-form h3 { margin:8px 0; font-size:15px; }
+.settings-form input[type="checkbox"] { width:auto; }
+@media(max-width:640px) {
+  .workspace-dialog > div { max-height:calc(85dvh - 40px); }
+  .settings-layout { grid-template-columns:110px minmax(0, 1fr); }
+  .settings-nav { padding-right:8px; }
+  .settings-nav button { padding:10px 7px; font-size:11px; overflow-wrap:anywhere; }
+  .settings-content { padding-left:12px; }
+  .settings-path { flex-wrap:wrap; }
+}

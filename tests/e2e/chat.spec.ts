@@ -16,7 +16,7 @@ test("chat, real SDK transport, file operation, resume, error, stop and history"
   await page.screenshot({ path: info.outputPath("welcome.png"), fullPage: true });
   await page.getByRole("button", { name: "完全访问" }).click();
   await expect(page.getByRole("dialog")).toContainText("无执行隔离");
-  await page.getByRole("button", { name: "关闭工作空间" }).click();
+  await page.getByRole("button", { name: "关闭设置" }).click();
   const first = `写入测试文件 ${info.project.name}`;
   await send(page, first);
   await expect(page.getByText("你好！我已连接到当前项目。")).toBeVisible();
