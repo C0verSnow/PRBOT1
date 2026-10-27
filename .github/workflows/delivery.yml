@@ -61,6 +61,9 @@ jobs:
           dpkg-deb -x release/*.deb "$RUNNER_TEMP/prbot-deb"
           echo "APP_EXECUTABLE=$RUNNER_TEMP/prbot-deb/opt/PRBOT/prbot" >> "$GITHUB_ENV"
           echo "APP_RESOURCES=$RUNNER_TEMP/prbot-deb/opt/PRBOT/resources" >> "$GITHUB_ENV"
+      - name: Verify final macOS architecture and signature
+        if: runner.os == 'macOS'
+        run: node scripts/verify-macos.mjs
       - name: Verify installed desktop application
         if: runner.os != 'Linux'
         run: node scripts/smoke-desktop.mjs
