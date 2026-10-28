@@ -60,6 +60,19 @@ try {
   await application.evaluate(({ dialog }, chosen) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] }); }, selected);
   await page.locator(".workspace-button").click();
   const settings = page.getByRole("dialog", { name: "设置" });
+  await expect(settings.locator(":scope > div")).toHaveCSS("transform", "none");
+  const frame = await settings.boundingBox();
+  const nav = settings.getByRole("navigation", { name: "设置分类" });
+  const navigation = await nav.boundingBox();
+  const title = await settings.locator(".dialog-heading").boundingBox();
+  for (const category of ["Codex 运行设置", "Telegram", "Infisical", "工作空间"]) {
+    await nav.getByRole("button", { name: category, exact: true }).click();
+    await expect(settings.locator(".settings-content").getByRole("heading", { name: category, exact: true })).toBeVisible();
+    expect(await settings.boundingBox()).toEqual(frame);
+    expect(await nav.boundingBox()).toEqual(navigation);
+    expect(await settings.locator(".dialog-heading").boundingBox()).toEqual(title);
+    expect(await settings.evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
+  }
   await settings.getByRole("button", { name: "选择目录", exact: true }).click();
   await expect(settings.getByRole("textbox", { name: "项目目录", exact: true })).toHaveValue(selected);
   await settings.getByRole("button", { name: "保存设置", exact: true }).click();

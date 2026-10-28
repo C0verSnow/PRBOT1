@@ -40,6 +40,7 @@ jobs:
           node --check desktop/preload.cjs
           node --check scripts/stage-desktop.mjs
           node --check scripts/smoke-desktop.mjs
+          node --check scripts/verify-macos.mjs
           node --check scripts/fake-codex.mjs
       - run: npm run typecheck
       - name: Install Redis test client

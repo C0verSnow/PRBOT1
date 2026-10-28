@@ -21,7 +21,10 @@ mac:
   icon: desktop/icons/icon.icns
   target: [dmg]
   category: public.app-category.developer-tools
-  identity: null
+  # Use builder's nested ad-hoc signing, not Electron's stale upstream signature.
+  # No Developer ID credentials are required; see docs/issue-12.md for limits.
+  identity: "-"
+  hardenedRuntime: false
   notarize: false
 win:
   icon: desktop/icons/icon.ico

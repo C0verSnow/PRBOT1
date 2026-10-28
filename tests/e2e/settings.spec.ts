@@ -1,6 +1,58 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+
+test("settings keep their frame and navigation fixed while only the content scrolls", async ({ page }, info) => {
+  // Run against the production build in remote CI, at desktop, phone and short-window sizes.
+  for (const viewport of [page.viewportSize()!, { width: 820, height: 480 }, { width: 360, height: 640 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await page.locator(".workspace-button").click();
+    const dialog = page.getByRole("dialog", { name: "设置" });
+    const nav = dialog.getByRole("navigation", { name: "设置分类" });
+    const heading = dialog.locator(".dialog-heading");
+    const content = dialog.locator(".settings-content");
+    // Opening motion must finish before comparing positions.
+    await expect(dialog.locator(":scope > div")).toHaveCSS("transform", "none");
+    const frame = await dialog.boundingBox();
+    const navigation = await nav.boundingBox();
+    const title = await heading.boundingBox();
+    expect(frame).not.toBeNull();
+    expect(frame!.x).toBeGreaterThanOrEqual(0);
+    expect(frame!.y).toBeGreaterThanOrEqual(0);
+    expect(frame!.x + frame!.width).toBeLessThanOrEqual(viewport.width);
+    expect(frame!.y + frame!.height).toBeLessThanOrEqual(viewport.height);
+    expect(Math.abs(frame!.x + frame!.width / 2 - viewport.width / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(frame!.y + frame!.height / 2 - viewport.height / 2)).toBeLessThanOrEqual(1);
+    for (const category of ["Codex 运行设置", "Telegram", "Infisical", "工作空间", "Infisical", "Codex 运行设置", "工作空间"]) {
+      await nav.getByRole("button", { name: category, exact: true }).click();
+      await expect(content.getByRole("heading", { name: category, exact: true })).toBeVisible();
+      await expect.poll(() => dialog.boundingBox()).toEqual(frame);
+      expect(await nav.boundingBox()).toEqual(navigation);
+      expect(await heading.boundingBox()).toEqual(title);
+      expect(await dialog.evaluate(element => element.scrollHeight <= element.clientHeight)).toBe(true);
+    }
+    await nav.getByRole("button", { name: "Codex 运行设置" }).click();
+    await content.evaluate(element => { element.scrollTop = 0; });
+    await page.screenshot({ path: info.outputPath(`stable-settings-${viewport.width}x${viewport.height}.png`), animations: "disabled" });
+    // Force overflow even on tall displays; this also covers a long validation/error message.
+    await content.evaluate(element => {
+      const extra = document.createElement("p");
+      extra.textContent = "很长的设置提示。".repeat(500);
+      element.append(extra);
+      element.scrollTop = element.scrollHeight;
+    });
+    expect(await content.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    expect(await dialog.boundingBox()).toEqual(frame);
+    expect(await nav.boundingBox()).toEqual(navigation);
+    expect(await heading.boundingBox()).toEqual(title);
+    expect(await dialog.evaluate(element => element.scrollTop)).toBe(0);
+    expect(await nav.evaluate(element => element.scrollTop)).toBe(0);
+    expect(await content.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await dialog.getByRole("button", { name: "关闭设置" }).click();
+  }
+});
+
 test("model discovery, persistence and actual SDK model argument agree", async ({ page }, info) => {
   await page.goto("/");
   await expect(page.getByRole("textbox", { name: "发送给 Codex 的消息" })).toBeEnabled();
