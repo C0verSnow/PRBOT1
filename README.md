@@ -4,7 +4,7 @@
 
 支持新建/搜索/删除历史对话、连续上下文、刷新后恢复、Markdown 与代码块、复制回复、流式执行反馈、文件修改记录、停止生成，以及桌面和手机尺寸布局。
 
-**按用户要求，本机网页和桌面的 Codex 会话以 `danger-full-access` + `approvalPolicy: never` 运行，可以直接读写本机文件、执行命令、访问网络。** 页面始终显示“完全访问”。项目目录只是起始工作目录，不是文件系统边界；停止不会撤销已完成操作。应用默认监听 `127.0.0.1`。Telegram 远程入口使用工作空间写入沙箱，禁用沙箱命令联网；GitHub 插件沿用已连接插件的权限和网络；可选 Webhook 只公开专用路径，详见下文。
+**按用户要求，本机网页和桌面的 Codex 会话以 `danger-full-access` + `approvalPolicy: never` 运行，可以直接读写本机文件、执行命令、访问网络。** 页面始终显示“完全访问”。项目目录只是起始工作目录，不是文件系统边界；停止不会撤销已完成操作。应用默认监听 `127.0.0.1`。Telegram 入口使用相同的完全访问与免审批设置，GitHub 插件沿用已连接插件的权限和网络；可选 Webhook 只公开专用路径，详见下文。
 
 ![桌面界面，来自远端 Playwright 实际截图](docs/screenshots/desktop.png)
 
@@ -81,9 +81,9 @@ npm run start
 
 在设置页配置 Infisical 的 Bot/Upstash 密钥连接和允许的 Telegram 用户 ID，启用后默认自动长轮询。支持 `/start`、`/help`、`/id`、`/FinishIssue`、`/status`、`/logs [游标]`、`/cancel`、`/continue`、`/new`、`/tasks` 和 `/confirm 问题编号`，忽略大小写并兼容 `/command@botname`。
 
-同一聊天和项目延续同一个 Codex Thread；执行中的补充要求在回合边界继续，问题回传 Telegram 等待回复。开始写文件前需要明确确认；Issue 链接先校验本地仓库，再通过当前 Codex 已启用的 GitHub 插件读取需求和检查权限，之后创建独立 Feature 分支。提交、推送和创建 PR 另行确认，进入 `awaiting_review` 后等用户 Review，不自动合并或关闭 Issue。任务、日志、去重和工作空间锁同时覆盖取消与重启恢复；不确定原进程是否停止时，需要本机检查后再续接。
+同一聊天和项目延续同一个 Codex Thread；普通文字直接自然对话，操作请求直接执行，执行中的补充要求在回合边界继续。Telegram 与本机使用 `danger-full-access`、`approvalPolicy: never` 和 `skipGitRepoCheck: true`，不再重复确认执行、提交、推送或 PR。Issue 链接先校验本地仓库，通过当前 Codex GitHub 插件读取需求和权限，再创建独立 Feature 分支，自动交付 PR 并等待 Review。真正缺少信息时用大白话提问。失败后可以直接追问原因或 `/new`；`/continue` 先检查上次结果，不直接重放未确认的操作。只有无法确定原子进程已停止时才锁住工作空间，并提示准确的恢复命令。
 
-[完整使用、环境配置、Webhook 部署、状态和恢复说明](docs/issue-14.md) · [GitHub 开源实现与 SDK 能力研究](docs/issue-14-research.md)。需要常驻的单主机 Node 进程和持久化工作空间，不适合无状态 Serverless 部署。Telegram 复用运行主机现有 Codex 配置、登录和插件，不另建隔离的 `CODEX_HOME`；SDK 主机必须实际启用并授权 GitHub 插件，插件不可用时会明确失败。Git commit/push 使用本机 Git 凭据。真实 Bot、模型和插件连接仍需实际部署验收。
+[Issue #17 修复与验证](docs/issue-17.md) · [完整使用、环境配置、Webhook 部署、状态和恢复说明](docs/issue-14.md) · [GitHub 开源实现与 SDK 能力研究](docs/issue-14-research.md)。需要常驻的单主机 Node 进程和持久化工作空间，不适合无状态 Serverless 部署。Telegram 复用运行主机现有 Codex 配置、登录和插件，不另建隔离的 `CODEX_HOME`；SDK 主机必须实际启用并授权 GitHub 插件，插件不可用时会明确失败。Git commit/push 使用本机 Git 凭据。真实 Bot、模型和插件连接仍需实际部署验收。
 
 ## 配置与数据
 

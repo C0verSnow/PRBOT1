@@ -139,6 +139,11 @@ describe("durable Telegram worker", { timeout: 15_000 }, () => {
     const lock = reserve("after-exit", directory); lock.release();
     expect(await dispatch("", "new")).toContain("已开启新");
   });
+  it("clears the pre-upgrade trusted-directory startup lock without blocking new conversation", async () => {
+    await seed({ requiresStopCheck: true, error: "Codex Exec exited with code 1: Reading prompt from stdin... Not inside a trusted directory and --skip-git-repo-check was not specified" });
+    fixture("这是上次启动失败，现在可以继续聊天。"); await dispatch("啥意思"); await wait("completed");
+    expect(mocks.run).toHaveBeenCalledTimes(1);
+  });
   it("drains a turn.failed stream before reporting the failure without a false stop lock", async () => {
     let drained = false;
     mocks.run.mockResolvedValueOnce({ events: (async function* () { yield { type: "turn.failed", error: { message: "登录已失效" } }; drained = true; })() });

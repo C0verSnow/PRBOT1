@@ -96,6 +96,9 @@ function rememberFailure(task: TelegramTask) {
   task.recoveryContext = [task.recoveryContext, task.error, uncertain.length ? `尚未确认结果的请求：\n${uncertain.join("\n\n")}` : ""].filter(Boolean).join("\n").slice(-16_000);
   task.inFlight = []; task.replayInFlightApproved = false;
 }
+function knownStartupFailure(task: TelegramTask) {
+  return typeof task.error === "string" && /^Codex Exec exited with code 1:/.test(task.error) && task.error.includes("Not inside a trusted directory");
+}
 function stopHint(task: TelegramTask) {
   return `上次执行是否停止还不能确定，工作空间暂时锁住。${task.error ? `\n具体原因：${task.error}` : ""}\n请先在本机检查并停止遗留的 Codex/Git 子进程，再发送 /continue 已在本机确认停止。此时 /new 也不能启动写入。`;
 }
@@ -123,6 +126,12 @@ export async function dispatchTelegram(input: TelegramDispatch): Promise<string>
       if (alive(task)) { task.stage = "stopping"; await store.saveTask(task); return "已记录取消请求，但原运行器仍可能在运行；请在本机检查停止后再继续。"; }
       task.status = "cancelled"; task.stage = "cancelled"; delete task.runner; await store.saveTask(task);
       return task.requiresStopCheck ? stopHint(task) : "任务已停止，文件、分支和 Thread 已保留。可直接发送消息，或 /continue 续接、/new 新建对话。";
+    }
+    // Migrate the exact pre-#17 startup failure: exec exited before a turn began.
+    // Old versions incorrectly saved requiresStopCheck for this known failure.
+    if (task?.requiresStopCheck && !alive(task) && !jobs.has(jobKey(store, task.id)) && knownStartupFailure(task)) {
+      task.requiresStopCheck = false; task.stage = task.status; delete task.question;
+      clearWorkspaceQuarantine(task.workspace); await store.saveTask(task);
     }
     if (task?.requiresStopCheck) {
       if (action === "continue" && text.trim() === "已在本机确认停止" && !alive(task) && !jobs.has(jobKey(store, task.id))) {
@@ -321,7 +330,6 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
       sdkActive = false;
       if (turnError) throw new Error(turnError);
       if (!completed) throw new Error("Codex 事件流提前结束；不会自动重试已执行操作，请检查后 /continue");
-      sdkActive = false;
       const answer = [...texts.values()].at(-1) || "";
       const result = task.issue ? parseResult(answer) : { status: "completed", summary: answer || "（没有文字回复）", question: null };
       await event(result.summary);
@@ -355,7 +363,7 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
     const message = redactTelegram(error instanceof Error ? error.message : "任务执行失败", secrets);
     // SDK throws this only after its child exit event (openai/codex exec.ts).
     // A normal startup/exit failure must not quarantine an idle workspace.
-    if (/^Codex Exec exited with (?:code \d+|signal [A-Z0-9]+):/.test(error instanceof Error ? error.message : "")) sdkActive = false;
+    if (!signal.aborted && /^Codex Exec exited with code \d+:/.test(error instanceof Error ? error.message : "")) sdkActive = false;
     const uncertainStop = sdkActive || (gitActive && signal.aborted);
     if (uncertainStop) quarantineWorkspace(task.workspace);
     task = await patch(store, id, { requiresStopCheck: uncertainStop, status: cancelled ? "cancelled" : signal.aborted ? "interrupted" : "failed", stage: cancelled ? "cancelled" : signal.aborted ? "interrupted" : "failed", question: undefined, error: cancelled ? undefined : message, runner: undefined }).catch(() => task!);
@@ -373,6 +381,10 @@ export async function recoverTelegramTasks(credentials: RedisCredentials, settin
   const store = new TelegramTaskStore(credentials, secrets);
   for (const task of await store.listTasks()) {
     if (jobs.has(jobKey(store, task.id))) continue;
+    if (task.requiresStopCheck && !alive(task) && knownStartupFailure(task)) {
+      await patch(store, task.id, { requiresStopCheck: false, stage: task.status, question: undefined });
+      clearWorkspaceQuarantine(task.workspace); continue;
+    }
     if (task.status === "running") {
       quarantineWorkspace(task.workspace);
       if (alive(task)) continue;
