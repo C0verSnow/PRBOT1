@@ -2,22 +2,23 @@ import { Codex, type ThreadEvent, type ThreadOptions, type ModelReasoningEffort 
 import { runtimeConfig } from "./config";
 import type { Activity } from "./types";
 
-export async function openThread(threadId?: string) {
-  const config = await runtimeConfig();
+export async function openThread(threadId?: string, remote?: { workspace: string }) {
+  const config = await runtimeConfig(remote ? { workspace: remote.workspace } : {});
   const client = new Codex({
     apiKey: config.env.CODEX_API_KEY || config.env.OPENAI_API_KEY || undefined,
     codexPathOverride: config.codexPath || undefined,
     env: config.env,
-    config: config.speed ? { service_tier: config.speed } : undefined,
+    config: { ...(config.speed ? { service_tier: config.speed } : {}), ...(remote ? { mcp_servers: {}, sandbox_workspace_write: { network_access: false, writable_roots: [], exclude_tmpdir_env_var: true, exclude_slash_tmp: true } } : {}) },
   });
-  // Explicit user requirement: run on the host with no execution isolation.
+  // Desktop retains the requested full access. Remote Telegram turns are workspace-bound;
+  // Git publication is a separate backend action after explicit user confirmation.
   const options: ThreadOptions = {
     workingDirectory: config.workspace,
     model: config.model || undefined,
     modelReasoningEffort: (config.effort || undefined) as ModelReasoningEffort | undefined,
-    sandboxMode: "danger-full-access",
+    sandboxMode: remote ? "workspace-write" : "danger-full-access",
     approvalPolicy: "never",
-    skipGitRepoCheck: true,
+    skipGitRepoCheck: !remote,
   };
   return threadId ? client.resumeThread(threadId, options) : client.startThread(options);
 }

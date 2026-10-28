@@ -20,7 +20,9 @@ if (args.includes("app-server")) {
   }
   process.exit(0);
 }
-if (!args.includes("danger-full-access") || !args.includes('approval_policy="never"')) throw new Error("Full access options missing");
+const remote = args.includes("workspace-write");
+if ((!args.includes("danger-full-access") && !remote) || !args.includes('approval_policy="never"')) throw new Error("Expected access options missing");
+if (remote && !args.some(arg => arg === "sandbox_workspace_write.network_access=false")) throw new Error("Remote network restriction missing");
 let prompt = "";
 for await (const chunk of process.stdin) prompt += chunk;
 const emit = event => process.stdout.write(JSON.stringify(event) + "\n");
@@ -49,5 +51,5 @@ if (prompt.includes("写入测试文件")) {
 }
 emit({ type: "item.started", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "", status: "in_progress" } });
 emit({ type: "item.completed", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "CI fixture workspace", status: "completed", exit_code: 0 } });
-emit({ type: "item.completed", item: { id: "msg", type: "agent_message", text: resumed ? "已接着上次对话继续。\n\n```ts\nconst continued = true;\n```" : "你好！我已连接到当前项目。\n\n- 可以阅读代码\n- 可以修改文件" } });
+emit({ type: "item.completed", item: { id: "msg", type: "agent_message", text: remote ? JSON.stringify({ status: "completed", summary: resumed ? "远程原线程已继续" : "远程任务已处理", question: null }) : resumed ? "已接着上次对话继续。\n\n```ts\nconst continued = true;\n```" : "你好！我已连接到当前项目。\n\n- 可以阅读代码\n- 可以修改文件" } });
 emit({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 10 } });
