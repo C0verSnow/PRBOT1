@@ -70,5 +70,8 @@
 - 新版后台健康检查正常；旧任务因 trusted-directory 启动报错误留的停止检查锁已自动清理，进度恢复为 failed。
 - 通过已安装新版的本机服务 API 使用真实登录和模型发送“你好”，真实回复为“你好，有什么需要我帮你处理的？”。没有启动目录报错，没有执行确认。
 - 同一真实 Thread 再要求把开场问候写入起始工作空间之外的 `/tmp/prbot-issue17-proof-1793188389.txt`；实际文件最终内容为“你好”，任务 completed。核对了上下文延续和完全访问写入，不涉及编译或运行测试脚本。
-- 新版 WebTG 最终全链路复测未完成：更新期间界面控制工具超时，此后访问 Chrome 和 Telegram 均报 `cgWindowNotFound`，无法继续发消息。上面的本机服务 API 结果不能当成新版 Telegram 全链路通过；Telegram 接收、持久化、Worker、真实 SDK 子进程、Redis 和回复顺序由远端确定性回归覆盖。
+- 用户解锁后已补做新版 WebTG 实测：`/new` 成功；发送“你好”先收到“消息已收到”，再收到开始执行通知，随后真实模型回复“你好！有什么需要我帮忙的？”。没有权限确认、启动目录报错或指令斜杠误脱敏；生成期间 `/status` 可及时返回 running/executing。
+- WebTG 连续上下文与临时文件写入已补验完成：在原 Thread `01a18264-a69d-7dc1-9821-360331dd95b7` 使用 `/continue` 先核对旧结果，再补做未生成的文件。Bot 实际回复“检查发现临时文件尚未生成，已补写并读回确认”，磁盘 `/tmp/prbot-issue17-webtg-1793189070.txt` 的实际内容为“你好”。任务 `4f2e208f-190e-4756-9878-f2bbc23bed46` 最终为 completed/completed，error 为空、停止检查为 false、pending 与 inFlight 都为空。执行没有权限确认，没有本地编译或运行测试脚本。
+- 恢复前核对无遗留 Codex 进程，并保留任务记录。此前两次执行曾 interrupted，报 The operation was aborted；具体触发原因没有足够证据确定。本轮通过独立临时键核对真实 Upstash EVAL/PEXPIRE，完成后删除临时键；另外只读观察实际任务锁，看到同一持锁者的剩余时间多次回升，完成后键被释放。只读观察不修改任务锁，也没有输出密钥。不能据这次成功反推前两次中断的确定原因。
+- 本轮已覆盖 WebTG → Telegram 接收 → Worker → 真实 Codex → 文件写入 → Telegram 最终回复；本机服务 API 的实测独立保留。没有使用模拟 SDK 或合成 Telegram 更新冒充这次实机结果。
 - 没有在用户的真实仓库触发自动开发、提交或 PR 发布任务；真实主机 GitHub 插件的开发任务验收仍应由用户 Review 时体验。本 PR 的发布和 Issue 关闭通过已连接 GitHub 工具完成，不自动合并。
