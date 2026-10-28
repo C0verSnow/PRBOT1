@@ -151,3 +151,13 @@ GitHub 插件沿用运行主机已连接插件的网络和授权范围，不受�
 现有组织 Secrets 中的 `INFISICAL_CLIENT_ID`、`INFISICAL_CLIENT_SECRET`、`INFISICAL_PROJECT_ID` 和 `INFISICAL_ENVIRONMENT` 可供 GitHub Actions 手动启用 `live_services`。它通过 Infisical 读取现有 `PR_BOT_TOKEN` 和 Upstash 两项，调用 Telegram `getMe`，并验证 Redis PING 与带随机前缀、60 秒 TTL 的临时键，最后清理。不会轮询消费更新、发送 Telegram 消息或调用付费模型。允许操作 Bot 的 ID 已有 `PRBOT_TELEGRAM_ACTOR_ID`，启用应用时仍在设置页填写白名单。
 
 组织 Secrets 需要允许 PRBOT1 仓库使用；此检查默认不运行，也不会在 PR 中读取组织密钥。完整 Codex 与 GitHub 插件交互使用运行主机已经连接的账号配置，不能把这个服务连通性检查当作真实模型和工具审批验收。
+
+### 最终远端证据
+
+最终代码提交 `b8f0190`：
+
+- [主验证](https://github.com/C0verSnow/PRBOT1/actions/runs/40638298362)：129 个测试通过、26 个桌面/手机浏览器测试通过、类型检查、生产构建、语法检查和依赖审计（0 漏洞）。真实服务用例在主回归中默认跳过。
+- [真实服务检查](https://github.com/C0verSnow/PRBOT1/actions/runs/40638293738)：组织 Infisical → 现有 `PR_BOT_TOKEN` → Telegram `getMe`，以及 Upstash PING、临时键互斥和清理通过。没有发消息或调用付费模型。
+- [跨平台交付](https://github.com/C0verSnow/PRBOT1/actions/runs/40638298372)：Windows x64、macOS arm64、Linux x64 的安装与运行检查，以及 Docker 运行检查全部通过，产物可从该流程的 Artifacts 下载。
+
+后续记录提交只更新文档，不改变已验证的应用代码。没有进行本地编译验证。
