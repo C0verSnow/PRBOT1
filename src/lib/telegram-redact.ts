@@ -23,5 +23,5 @@ export function redactTelegram(text: string, secrets: readonly string[] = []) {
     .replace(/\b(Bearer|Basic)\s+[^\s"'<>]+/gi, `$1 ${HIDDEN}`)
     .replace(/(https?:\/\/)[^\s/@]+:[^\s/@]+@/gi, `$1${HIDDEN}@`)
     .replace(/([?&](?:token|key|api_key|apikey|secret|password|access_token|auth)=)[^&#\s"']+/gi, `$1${HIDDEN}`)
-    .replace(/((?:["']?[A-Za-z0-9_]*(?:API_KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|AUTHORIZATION|COOKIE)[A-Za-z0-9_]*["']?)\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;\r\n}]+)/gi, `$1${HIDDEN}`);
+    .replace(/((?:["']?[A-Za-z0-9_]*(?:API_KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|AUTHORIZATION|COOKIE)[A-Za-z0-9_]*["']?)\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;\r\n}&#]+)/gi, `$1${HIDDEN}`);
 }
