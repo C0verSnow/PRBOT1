@@ -2,22 +2,24 @@ import { Codex, type ThreadEvent, type ThreadOptions, type ModelReasoningEffort 
 import { runtimeConfig } from "./config";
 import type { Activity } from "./types";
 
-export async function openThread(threadId?: string) {
-  const config = await runtimeConfig();
+export async function openThread(threadId?: string, remote?: { workspace: string; readOnly?: boolean }) {
+  const config = await runtimeConfig(remote ? { workspace: remote.workspace } : {});
   const client = new Codex({
     apiKey: config.env.CODEX_API_KEY || config.env.OPENAI_API_KEY || undefined,
     codexPathOverride: config.codexPath || undefined,
     env: config.env,
-    config: config.speed ? { service_tier: config.speed } : undefined,
+    config: { ...(config.speed ? { service_tier: config.speed } : {}), ...(remote ? { sandbox_workspace_write: { network_access: false, writable_roots: [], exclude_tmpdir_env_var: true, exclude_slash_tmp: true } } : {}) },
   });
-  // Explicit user requirement: run on the host with no execution isolation.
+  // Desktop retains full access. Telegram shell commands use a bounded sandbox;
+  // the existing GitHub plugin keeps its configured account and tool permissions;
+  // Git publication is a separate backend action after explicit user confirmation.
   const options: ThreadOptions = {
     workingDirectory: config.workspace,
     model: config.model || undefined,
     modelReasoningEffort: (config.effort || undefined) as ModelReasoningEffort | undefined,
-    sandboxMode: "danger-full-access",
+    sandboxMode: remote ? (remote.readOnly ? "read-only" : "workspace-write") : "danger-full-access",
     approvalPolicy: "never",
-    skipGitRepoCheck: true,
+    skipGitRepoCheck: !remote,
   };
   return threadId ? client.resumeThread(threadId, options) : client.startThread(options);
 }

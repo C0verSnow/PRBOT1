@@ -1,22 +1,47 @@
-import { workspace, runtimeConfig } from "./config";
+import { workspace, runtimeConfig, dataDirectory } from "./config";
 import { runs, assertCanRun } from "./runtime-state";
 import { randomUUID } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
 import { activity, openThread, readableError } from "./codex";
 import { HttpError } from "./http";
 import { getChat, saveChat } from "./store";
 import type { Chat, Message, StreamEvent } from "./types";
 
 // Shared across Next development reloads. Run a single Node server for this local app.
-const state = globalThis as typeof globalThis & { prbotRuns?: Map<string, AbortController>; prbotSnapshots?: Map<string, Chat> };
+const state = globalThis as typeof globalThis & { prbotRuns?: Map<string, AbortController>; prbotSnapshots?: Map<string, Chat>; prbotWorkspaceQuarantine?: Set<string> };
 const snapshots = state.prbotSnapshots ??= new Map();
+const quarantine = state.prbotWorkspaceQuarantine ??= new Set<string>();
+export function quarantineWorkspace(workspacePath: string) { quarantine.add(workspacePath); }
+export function clearWorkspaceQuarantine(workspacePath: string) { quarantine.delete(workspacePath); }
+// Restore the stop barrier before any web turn, even if Infisical/Redis is offline
+// and Telegram startup reconciliation has not finished yet.
+async function restoreTelegramQuarantine(workspacePath: string) {
+  if (runs.has(`workspace:${workspacePath}`)) return;
+  const root = path.join(dataDirectory(), "telegram");
+  let bots: string[];
+  try { bots = await readdir(root); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return; throw error; }
+  for (const bot of bots.filter(id => /^\d+$/.test(id))) {
+    let files: string[];
+    try { files = await readdir(path.join(root, bot, "tasks")); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
+    for (const file of files.filter(name => /^[A-Za-z0-9_-]+\.json$/.test(name))) {
+      const task = JSON.parse(await readFile(path.join(root, bot, "tasks", file), "utf8"));
+      if (task.workspace === workspacePath && (task.status === "running" || task.requiresStopCheck)) quarantineWorkspace(workspacePath);
+    }
+  }
+}
 export function liveChat(id: string) { return snapshots.get(id); }
 export function isRunning(id: string) { return runs.has(id); }
 export function stop(id: string) { runs.get(id)?.abort(); }
-export function reserve(id: string) {
+export function reserve(id: string, workspacePath?: string) {
   assertCanRun();
+  if (workspacePath && quarantine.has(workspacePath)) throw new HttpError(409, "上次远程任务的 Codex 子进程尚未确认停止，请先在 Telegram 用 /continue 检查并确认");
   if (runs.has(id)) throw new HttpError(409, "这段对话还在执行，请先停止或等待完成");
+  const workspaceKey = workspacePath ? `workspace:${workspacePath}` : undefined;
+  if (workspaceKey && runs.has(workspaceKey)) throw new HttpError(409, "当前工作空间有任务正在执行，请先停止或等待完成");
   const controller = new AbortController(); runs.set(id, controller);
-  return { controller, release: () => { if (runs.get(id) === controller) { runs.delete(id); snapshots.delete(id); } } };
+  if (workspaceKey) runs.set(workspaceKey, controller);
+  return { controller, release: () => { if (runs.get(id) === controller) { runs.delete(id); snapshots.delete(id); if (workspaceKey && runs.get(workspaceKey) === controller) runs.delete(workspaceKey); } } };
 }
 export function recover(chat: Chat) {
   if (!isRunning(chat.id)) {
@@ -27,10 +52,12 @@ export function recover(chat: Chat) {
   return chat;
 }
 export async function prepareTurn(id: string, prompt: string) {
-  const lock = reserve(id);
+  const currentWorkspace = await workspace();
+  await restoreTelegramQuarantine(currentWorkspace);
+  const lock = reserve(id, currentWorkspace);
   try {
+    if (await workspace() !== currentWorkspace) throw new HttpError(409, "当前工作空间已变化，请重新发送任务");
     const chat = await getChat(id);
-    const currentWorkspace = await workspace();
     if (chat.workspace && chat.workspace !== currentWorkspace) throw new HttpError(409, "这段对话属于另一个项目，请切回原目录或新建对话");
     chat.workspace = currentWorkspace;
     // A previous process may have exited without a terminal event.

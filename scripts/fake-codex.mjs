@@ -20,7 +20,9 @@ if (args.includes("app-server")) {
   }
   process.exit(0);
 }
-if (!args.includes("danger-full-access") || !args.includes('approval_policy="never"')) throw new Error("Full access options missing");
+const remote = args.includes("workspace-write") || args.includes("read-only");
+if ((!args.includes("danger-full-access") && !remote) || !args.includes('approval_policy="never"')) throw new Error("Expected access options missing");
+if (remote && !args.some(arg => arg === "sandbox_workspace_write.network_access=false")) throw new Error("Remote network restriction missing");
 let prompt = "";
 for await (const chunk of process.stdin) prompt += chunk;
 const emit = event => process.stdout.write(JSON.stringify(event) + "\n");
@@ -28,6 +30,30 @@ const resumed = args.includes("resume");
 const id = resumed ? args[args.indexOf("resume") + 1] : randomUUID();
 emit({ type: "thread.started", thread_id: id });
 emit({ type: "turn.started" });
+if (prompt.includes("PRBOT_GITHUB_PLUGIN_")) {
+  const created = prompt.includes("PRBOT_GITHUB_PLUGIN_PR_CREATE");
+  const inspected = prompt.includes("PRBOT_GITHUB_PLUGIN_INSPECT");
+  const metadataLine = prompt.split("\n").find(line => inspected ? line.startsWith("只读检查：{") : line.startsWith("{"));
+  const metadata = JSON.parse(inspected ? metadataLine.slice("只读检查：".length) : metadataLine);
+  const repository = inspected ? `${metadata.owner}/${metadata.repo}` : metadata.repository;
+  const call = (id, tool, parameters, result) => emit({ type: "item.completed", item: { id, type: "mcp_tool_call", server: "github", tool, arguments: parameters, status: "completed", result: { content: [], structured_content: result } } });
+  let data;
+  if (inspected) {
+    const body = "Read through the configured GitHub plugin fixture";
+    call("issue-plugin", "fetch_issue", { repository_full_name: repository, issue_number: metadata.issueNumber }, { issue: { url: metadata.issueUrl, issue_number: metadata.issueNumber, title: "Fixture Issue", body, state: "open" } });
+    call("repo-plugin", "get_repo", { repository_full_name: repository }, { repository_full_name: repository, name: metadata.repo, owner: { login: metadata.owner }, default_branch: "main", permissions: { push: true, pull: true } });
+    data = { title: "Fixture Issue", context: body, defaultBranch: "main", canRead: true, canWrite: true, isOpen: true, isPullRequest: false };
+  } else {
+    const prUrl = `https://github.com/${repository}/pull/15`;
+    call("lookup-plugin", "search_prs", { repository_full_name: repository, query: `head:${metadata.head} base:${metadata.base}`, state: "open" }, { issues: [] });
+    if (created) call("create-plugin", "create_pull_request", { repository_full_name: repository, head: metadata.head, base: metadata.base }, { url: prUrl, head: metadata.head, base: metadata.base, state: "open", head_repo_full_name: repository });
+    data = { repository, head: metadata.head, base: metadata.base, found: created, prUrl: created ? prUrl : null };
+  }
+  emit({ type: "item.completed", item: { id: "result", type: "agent_message", text: JSON.stringify(data) } });
+  emit({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 20 } });
+  process.exit(0);
+}
+
 if (prompt.includes("模拟失败")) { emit({ type: "turn.failed", error: { message: "测试服务暂时不可用" } }); process.exit(0); }
 if (prompt.includes("滚动验证")) {
   const text = Array.from({ length: 60 }, (_, index) => `阅读段落 ${index + 1}：流式更新时保留当前阅读位置。`).join("\n\n");
@@ -49,5 +75,5 @@ if (prompt.includes("写入测试文件")) {
 }
 emit({ type: "item.started", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "", status: "in_progress" } });
 emit({ type: "item.completed", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "CI fixture workspace", status: "completed", exit_code: 0 } });
-emit({ type: "item.completed", item: { id: "msg", type: "agent_message", text: resumed ? "已接着上次对话继续。\n\n```ts\nconst continued = true;\n```" : "你好！我已连接到当前项目。\n\n- 可以阅读代码\n- 可以修改文件" } });
+emit({ type: "item.completed", item: { id: "msg", type: "agent_message", text: remote ? JSON.stringify({ status: "completed", summary: resumed ? "远程原线程已继续" : "远程任务已处理", question: null }) : resumed ? "已接着上次对话继续。\n\n```ts\nconst continued = true;\n```" : "你好！我已连接到当前项目。\n\n- 可以阅读代码\n- 可以修改文件" } });
 emit({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 10 } });

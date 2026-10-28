@@ -64,17 +64,19 @@ PRBOT 原创图形：深绿圆角方形、浅色终端提示符和绿色分支�
 
 ## Telegram 和 Infisical
 
-在 Infisical Cloud 的项目根目录、所选环境中准备 `TELEGRAM_BOT_TOKEN`、`UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN`。创建只允许读取这些密钥的 Machine Identity，并启用 Universal Auth。设置页分为“工作空间”“Codex 运行设置”“Telegram”“Infisical”四个分类。在 Infisical 中填写 Project ID、Client ID、Client Secret 和环境名（默认 `prod`）；在 Telegram 中填写允许的 Telegram 数字用户 ID 并选择是否启用。两页共享同一份设置，可在任一页保存。多个 ID 用逗号分隔。只处理白名单用户的私聊文字；Bot 与运行 PRBOT 的用户有相同的文件和命令权限，请仅允许可信用户。
+在 Infisical Cloud 的项目根目录、所选环境中准备 `PR_BOT_TOKEN`（兼容旧名 `TELEGRAM_BOT_TOKEN`）、`UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN`，为 Machine Identity 启用 Universal Auth。设置页分为“工作空间”“Codex 运行设置”“Telegram”“Infisical”四类；填写 Project ID、Client ID、Client Secret、环境名，以及允许的 Telegram 数字用户 ID（多个用逗号分开）后启用。只接收白名单用户的私聊消息和按钮。
 
-Client Secret 为连接 Infisical 必需的启动凭据，保存在本机数据目录的 `telegram-settings.json`，不返回设置页面；文件尝试使用仅当前用户可读写的权限。它以明文存储，运行 PRBOT 的用户和拥有相同权限的程序可以读取。Telegram 和 Upstash 密钥仅从 Infisical 读取，不写进本机设置；密钥约每分钟刷新。当前支持 Infisical Cloud，不支持自托管地址或根目录以外的密钥路径。
+Client Secret 保存在本机数据目录的 `telegram-settings.json`，不返回设置页面；文件使用仅当前用户可读写的权限。Telegram 和 Upstash 密钥从 Infisical 读取，约每分钟刷新，不写进本机设置。当前支持 Infisical Cloud 项目根目录。GitHub Issue 的读取、权限检查和 PR 创建复用运行主机现有 Codex GitHub 插件，必须在同一 Codex 配置中启用并授权该插件；不需要另外配置 GitHub API Token。Git commit/push 仍使用本机现有 Git 身份和推送凭据。
 
-PRBOT 运行期间自动长轮询；同一个 Bot Token 只能由一个实例轮询。发送 `/start` 查看提示，发送 `/new` 开始新会话，其他文字交给当前工作目录下的 Codex；切换工作目录后会使用该目录独立的会话。回复超过 Telegram 单条限制会分段。任务开始前记录 Telegram 更新，进程意外退出时不会自动重复执行该更新；可能需要用户重新发送。任务执行时无法修改设置。
+默认长轮询，执行任务不会占住收消息循环。所有指令、同 Thread 多轮回复、待处理消息、日志分页、确认、取消和恢复见 [Issue #14 使用与部署说明](issue-14.md)。`PRBOT_TELEGRAM_TRANSPORT=webhook` 时需要额外设置启动环境中的 Webhook Secret，并在 Telegram 注册专用 HTTPS 地址；仍然需要常驻 Node 进程，不能把该入口部署成无状态函数。
 
-Upstash 记录用户 ID、用户名、聊天 ID、工作目录、消息及 Codex 线程 ID。原子写入时按记录 JSON 的 UTF-8 字节数计算，最多保留 50 MiB（52,428,800 字节），超出时从最早记录开始删除；Redis 键和内部开销不计入此数，其他应用的数据也不在此限制内。删除了会话记录后，相应线程无法再从 Telegram 恢复。会话本身由本机 Codex 管理，Upstash 不保存 Codex 的完整内部线程文件。为避免覆盖其他数据，使用独立数据库或确保 `prbot:telegram:*` 键不被其他程序修改。
+本机任务和会话元数据保存在 `PRBOT_DATA_DIR/telegram/<数字Bot ID>/`，Redis 保存缓存、日志流、去重键和工作空间租约。本机 JSON、项目 Git 文件和 Codex 自身的会话目录必须一起保留；Redis 不能代替这些文件。日志预算按每个 Bot 的正文与估算元数据计 50 MiB，缓存过期和淘汰规则见上述说明。新流程不会自动迁移旧版 Redis 记录的 Thread 映射。
+
+Telegram 的 SDK 执行使用 `workspace-write`，禁用沙箱命令联网；插件的网络和访问范围沿用已连接插件的权限。Telegram 与网页共用当前配置的 `CODEX_HOME`、登录和插件，不额外建立隔离目录，也不把聊天侧已连接插件视为 SDK 主机必然可用。缺少 GitHub 插件或授权时明确报错。开始执行和提交/推送/创建 PR 分别确认，这是应用阶段确认，不是原生逐工具审批；本机网页和桌面的完全访问设置维持现有行为。无法确认旧子进程已经停止时会锁住工作空间，需要本机检查后 `/continue` 明确确认。任务执行期间不能改设置。
 
 ### GitHub 方案比较
 
-2026-10-27 检索了维护活跃且许可明确的同类项目：[grammY](https://github.com/grammyjs/grammY)（MIT，约 3,782 stars）和 [Telegraf](https://github.com/telegraf/telegraf)（MIT，约 9,202 stars）均以 TypeScript 封装 Telegram Bot API，支持长轮询；前者采用插件式中间件，后者提供完整上下文与中间件。Telegraf 的 [#2096](https://github.com/telegraf/telegraf/issues/2096) 讨论了不同上下文中的监测实例问题；grammY 的 [#970](https://github.com/grammyjs/grammY/issues/970) 讨论部署文档，均有讨论。这里借鉴它们的长轮询与消息过滤思路，因仅需私聊文字和回复，直接使用 Telegram 官方 HTTP API，不额外引入框架依赖。[Upstash redis-js](https://github.com/upstash/redis-js)（MIT，约 982 stars）使用 HTTP 访问 Redis；其 [#1455](https://github.com/upstash/redis-js/issues/1455) 报告非幂等命令自动重试可能重复执行。此处直接调用官方 REST API，不自动重试写入，使用 Redis Lua 脚本原子计数和淘汰。没有复制来源不明的代码。
+Issue #14 再次检索了维护活跃且 MIT 许可明确的 grammY、Telegraf 和 Upstash redis-js，比较会话并发、持久化、HTTP 依赖和非幂等重试问题后，复用现有 HTTP 接入与 Codex SDK，加入顺序接收、Redis Streams、所有者租约和本机持久化。详细源码、提交、Issue 回复和采用思路见 [研究记录](issue-14-research.md)。没有复制来源不明的代码。
 
 ## 设置分类改版（issue #10）
 
