@@ -22,7 +22,11 @@ export async function telegramCredentials(settings: TelegramSettings): Promise<R
   const [botToken, url, token] = await Promise.all([secret("PR_BOT_TOKEN", true).then(value => value || secret("TELEGRAM_BOT_TOKEN")), secret("UPSTASH_REDIS_REST_URL"), secret("UPSTASH_REDIS_REST_TOKEN")]);
   if (!botToken || !url || !token) throw new Error("Infisical Telegram 或 Upstash 必要密钥缺失");
   let parsed: URL;
-  try { parsed = new URL(url); } catch { throw new Error("Upstash 地址格式不正确"); }
+  // Infisical may contain a value pasted from a quoted .env assignment.
+  // Remove only one matching outer quote pair; keep the strict origin check below.
+  const address = url.trim();
+  const normalized = address.length >= 2 && ['"', "'"].includes(address[0]) && address.at(-1) === address[0] ? address.slice(1, -1).trim() : address;
+  try { parsed = new URL(normalized); } catch { throw new Error("Upstash 地址格式不正确"); }
   if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== "/" || !parsed.hostname.endsWith(".upstash.io")) throw new Error("Upstash 地址必须是官方 HTTPS REST 地址");
   if (!/^\d+:[A-Za-z0-9_-]+$/.test(botToken)) throw new Error("Telegram Bot Token 格式不正确");
   return { botToken, url: parsed.toString(), token };

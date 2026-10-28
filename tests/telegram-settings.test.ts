@@ -50,4 +50,16 @@ describe("Telegram settings", () => {
     expect(fetcher).toHaveBeenCalledTimes(5);
   });
 
+  it("accepts a quoted Infisical REST URL while still rejecting an unrelated host", async () => {
+    let address = '\"https://example.upstash.io\"';
+    vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes("universal-auth/login")) return Response.json({ accessToken: "access" });
+      const value = String(url).includes("PR_BOT_TOKEN") ? "123:token" : String(url).includes("UPSTASH_REDIS_REST_URL") ? address : "redis-secret";
+      return Response.json({ secret: { secretValue: value } });
+    }));
+    expect((await telegramCredentials(input)).url).toBe("https://example.upstash.io/");
+    address = '\"https://example.com\"';
+    await expect(telegramCredentials(input)).rejects.toThrow("官方 HTTPS");
+  });
+
 });
