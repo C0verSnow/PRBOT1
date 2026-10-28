@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/lib/telegram-settings", () => ({ readTelegramSettings: async () => mocks.settings }));
 vi.mock("../src/lib/codex", () => ({ openThread: mocks.open, activity: () => undefined }));
 vi.mock("../src/lib/telegram-api", () => ({ telegramSend: mocks.send }));
-vi.mock("../src/lib/telegram-github", () => ({ inspectIssue: mocks.inspect, prepareIssue: mocks.prepare, reviewSnapshot: mocks.snapshot, publishIssue: mocks.publish }));
+vi.mock("../src/lib/telegram-github", () => ({ parseIssueLink: (url: string) => ({ owner: "owner", repo: "repo", number: 14, url }), inspectIssue: mocks.inspect, prepareIssue: mocks.prepare, reviewSnapshot: mocks.snapshot, publishIssue: mocks.publish }));
 import { dispatchTelegram, recoverTelegramTasks } from "../src/lib/telegram-worker";
 import { TelegramTaskStore, type TelegramTask } from "../src/lib/telegram-task-store";
 import { reserve, clearWorkspaceQuarantine } from "../src/lib/runner";
@@ -112,7 +112,7 @@ describe("durable Telegram worker", { timeout: 15_000 }, () => {
     mocks.snapshot.mockResolvedValue({ fingerprint: "reviewed", summary: "1 file changed", hasChanges: true });
     mocks.publish.mockResolvedValue("https://github.com/owner/repo/pull/15");
     fixture(result("ready_to_publish"));
-    await dispatch("", "finishissue"); await dispatch("https://github.com/owner/repo/issues/14");
+    await dispatch("", "finishissue"); await dispatch("https://github.com/owner/repo/issues/14"); await wait("waiting_input");
     await dispatch("expired", "confirm", "expired"); expect(mocks.open).not.toHaveBeenCalled();
     await confirm(); const ready = await wait("waiting_input"); expect(ready.stage).toBe("confirm_publish");
     expect(mocks.publish).not.toHaveBeenCalled();

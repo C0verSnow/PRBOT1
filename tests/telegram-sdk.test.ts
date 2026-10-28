@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { openThread } from "../src/lib/codex";
+import { pluginInspectIssue, pluginEnsurePullRequest } from "../src/lib/telegram-github-plugin";
 let directory: string;
 beforeEach(async () => {
   directory = await mkdtemp(path.join(os.tmpdir(), "prbot-telegram-sdk-"));
@@ -24,4 +25,12 @@ describe("Telegram through the actual SDK subprocess transport (remote CI fixtur
     expect(resumed.id).toBe(thread.id);
     expect(JSON.parse(next.finalResponse).summary).toBe("远程原线程已继续");
   });
+  it("uses the same configured SDK for GitHub plugin inspection and confirmed PR delivery", async () => {
+    const issue = { owner: "Owner", repo: "project", number: 14, url: "https://github.com/Owner/project/issues/14" };
+    const details = await pluginInspectIssue(directory, issue);
+    expect(details.canWrite).toBe(true); expect(details.context).toContain("GitHub plugin fixture");
+    expect(await pluginEnsurePullRequest(directory, issue, "feature/fixture", "main", false)).toBeUndefined();
+    expect(await pluginEnsurePullRequest(directory, issue, "feature/fixture", "main", true)).toBe("https://github.com/Owner/project/pull/15");
+  });
+
 });

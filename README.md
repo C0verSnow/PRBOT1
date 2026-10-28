@@ -4,7 +4,7 @@
 
 支持新建/搜索/删除历史对话、连续上下文、刷新后恢复、Markdown 与代码块、复制回复、流式执行反馈、文件修改记录、停止生成，以及桌面和手机尺寸布局。
 
-**按用户要求，Codex 以 `danger-full-access` + `approvalPolicy: never` 运行，可以直接读写本机文件、执行命令、访问网络。** 页面始终显示“完全访问”。项目目录只是起始工作目录，不是文件系统边界；停止不会撤销已完成操作。应用仅供本机单人使用，默认监听 `127.0.0.1`，不要改成公网服务。
+**按用户要求，本机网页和桌面的 Codex 会话以 `danger-full-access` + `approvalPolicy: never` 运行，可以直接读写本机文件、执行命令、访问网络。** 页面始终显示“完全访问”。项目目录只是起始工作目录，不是文件系统边界；停止不会撤销已完成操作。应用默认监听 `127.0.0.1`。Telegram 远程入口使用工作空间写入沙箱，禁用沙箱命令联网；GitHub 插件沿用已连接插件的权限和网络；可选 Webhook 只公开专用路径，详见下文。
 
 ![桌面界面，来自远端 Playwright 实际截图](docs/screenshots/desktop.png)
 
@@ -77,6 +77,14 @@ npm run start
 
 [配置优先级、保存位置、异常处理、模型权限和实现来源](docs/settings.md)。
 
+## Telegram 远程入口
+
+在设置页配置 Infisical 的 Bot/Upstash 密钥连接和允许的 Telegram 用户 ID，启用后默认自动长轮询。支持 `/start`、`/help`、`/id`、`/FinishIssue`、`/status`、`/logs [游标]`、`/cancel`、`/continue`、`/new`、`/tasks` 和 `/confirm 问题编号`，忽略大小写并兼容 `/command@botname`。
+
+同一聊天和项目延续同一个 Codex Thread；执行中的补充要求在回合边界继续，问题回传 Telegram 等待回复。开始写文件前需要明确确认；Issue 链接先校验本地仓库，再通过当前 Codex 已启用的 GitHub 插件读取需求和检查权限，之后创建独立 Feature 分支。提交、推送和创建 PR 另行确认，进入 `awaiting_review` 后等用户 Review，不自动合并或关闭 Issue。任务、日志、去重和工作空间锁同时覆盖取消与重启恢复；不确定原进程是否停止时，需要本机检查后再续接。
+
+[完整使用、环境配置、Webhook 部署、状态和恢复说明](docs/issue-14.md) · [GitHub 开源实现与 SDK 能力研究](docs/issue-14-research.md)。需要常驻的单主机 Node 进程和持久化工作空间，不适合无状态 Serverless 部署。Telegram 复用运行主机现有 Codex 配置、登录和插件，不另建隔离的 `CODEX_HOME`；SDK 主机必须实际启用并授权 GitHub 插件，插件不可用时会明确失败。Git commit/push 使用本机 Git 凭据。真实 Bot、模型和插件连接仍需实际部署验收。
+
 ## 配置与数据
 
 | 服务端变量 | 用途 |
@@ -84,14 +92,16 @@ npm run start
 | `CODEX_WORKSPACE` | 起始项目目录，留空使用程序仓库目录；必须存在 |
 | `CODEX_MODEL` | 指定账户有权限使用的模型；留空采用 Codex 默认，不硬编码模型清单 |
 | `CODEX_API_KEY` / `OPENAI_API_KEY` | 可选 API key，留空复用本机 Codex 登录 |
-| `CODEX_HOME` | 可选，已有的 Codex 配置/登录/会话目录 |
+| `CODEX_HOME` | 可选，已有的 Codex 配置、插件、登录和会话目录；Telegram 复用同一配置 |
 | `PRBOT_SETTINGS_FILE` | 可选，非敏感设置文件路径 |
 | `CODEX_PATH_OVERRIDE` | 可选，使用你指定的官方 Codex CLI 可执行文件 |
-| `PRBOT_DATA_DIR` | 聊天记录目录，默认 `.data` |
+| `PRBOT_DATA_DIR` | 聊天记录和 Telegram 持久化任务目录，默认 `.data` |
+| `PRBOT_TELEGRAM_TRANSPORT` | 默认 `polling`；设为 `webhook` 启用专用 Webhook 入口 |
+| `PRBOT_TELEGRAM_WEBHOOK_SECRET` | Webhook 模式必填的 16–256 位 URL 安全随机值 |
 
 项目内没有已有 `.env`；已检查上级 `.env` 只有 Infisical 配置，与本应用认证无关，因此未复制任何凭据。可在工作空间内保存设置立即用于下一条任务；启动环境变量变更后重启，项目 .env 在读取配置时加载。切换项目目录时新建对话。
 
-聊天正文保存在 `.data/<uuid>.json`，Codex 自身会话按 SDK 规则保存在本机 Codex 会话目录。删除聊天只删除本程序记录，不删除 Codex 会话或回滚项目。服务重启后打开历史对话即可继续；中断的回复会标为已停止。同一对话只允许一个执行，期间禁止切换/删除；其他浏览器打开正在执行的对话时会轮询最新状态并可停止。请只运行一个 Node 服务进程，不支持多实例或多用户。
+聊天正文保存在 `.data/<uuid>.json`，Codex 自身会话按 SDK 规则保存在本机 Codex 会话目录。删除聊天只删除本程序记录，不删除 Codex 会话或回滚项目。服务重启后打开历史对话即可继续；中断的回复会标为已停止。同一对话只允许一个执行，期间禁止切换/删除；其他浏览器打开正在执行的对话时会轮询最新状态并可停止。请只运行一个 Node 服务进程，不支持多实例；Telegram 白名单用于可信远程交互，不提供多用户系统账户隔离。
 
 ## 验证与依赖安全
 
@@ -111,5 +121,6 @@ issue #4 功能提交 `a9dd068` 已通过 [Web 完整回归](https://github.com/
 ## 文档
 
 - [设计、开源方案比较与安全公告](docs/design.md)
+- [Telegram 会话、任务、确认和部署](docs/issue-14.md)
 - [带 Unix Timestamp 的执行记录](tasklist.md)
 - [Codex SDK 官方文档](https://developers.openai.com/codex/sdk/)

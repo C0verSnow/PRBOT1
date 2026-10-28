@@ -7,13 +7,16 @@ import path from "node:path";
 import { git, githubRemote, inspectIssue, parseIssueLink, prepareIssue, publishIssue, reviewSnapshot } from "../src/lib/telegram-github";
 import type { TelegramIssue } from "../src/lib/telegram-task-store";
 
+const plugins = vi.hoisted(() => ({ inspect: vi.fn(), pullRequest: vi.fn() }));
+vi.mock("../src/lib/telegram-github-plugin", () => ({ pluginInspectIssue: plugins.inspect, pluginEnsurePullRequest: plugins.pullRequest }));
+
 const exec = promisify(execFile);
 const issueUrl = "https://github.com/Owner/project/issues/14";
 const branch = "feature/issue-14-fixture";
 let home: string;
 let workspace: string;
 let remote: string;
-let calls: Array<{ url: URL; method: string; body?: Record<string, unknown>; authorization: string | null }>;
+let calls: Array<{ operation: string; body?: Record<string, unknown> }>;
 let issueData: { title: string; body: string; comments: number; state: string; pull_request?: object };
 let repoData: { default_branch: string; permissions?: { push?: boolean } };
 let existing: Array<{ html_url: string }>;
@@ -44,19 +47,18 @@ beforeEach(async () => {
   vi.stubEnv("GIT_SSH_COMMAND", `${quote(process.execPath)} ${quote(ssh)}`);
   vi.stubEnv("GIT_SSH_VARIANT", "simple");
   vi.stubEnv("PRBOT_TEST_GIT_REMOTE_PATH", remote);
-  vi.stubEnv("GITHUB_TOKEN", ""); vi.stubEnv("GH_TOKEN", "");
   issueData = { title: "Telegram remote workflow", body: "Implement a stable Thread", comments: 1, state: "open" };
   repoData = { default_branch: "main", permissions: { push: true } }; existing = []; calls = [];
-  vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    const url = new URL(String(input)); const method = init?.method || "GET";
-    calls.push({ url, method, body: typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined, authorization: new Headers(init?.headers).get("Authorization") });
-    if (url.hostname !== "api.github.com") throw new Error("Unexpected fixture network request");
-    if (url.pathname.endsWith("/comments")) return Response.json([{ user: { login: "reviewer" }, body: "Keep the Issue open until review" }]);
-    if (url.pathname.endsWith("/issues/14")) return Response.json(issueData);
-    if (url.pathname.endsWith("/pulls")) return Response.json(method === "POST" ? { html_url: "https://github.com/Owner/project/pull/15" } : existing);
-    if (url.pathname === "/repos/Owner/project") return Response.json(repoData);
-    throw new Error(`Unexpected fixture path: ${url.pathname}`);
-  }));
+  plugins.inspect.mockReset().mockImplementation(async () => {
+    calls.push({ operation: "inspect" });
+    return { title: issueData.title, context: `${issueData.body}\nKeep the Issue open until review`, defaultBranch: repoData.default_branch, canRead: true, canWrite: repoData.permissions?.push === true, isOpen: issueData.state === "open", isPullRequest: !!issueData.pull_request };
+  });
+  plugins.pullRequest.mockReset().mockImplementation(async (_workspace: string, _issue: TelegramIssue, head: string, base: string, create: boolean) => {
+    calls.push({ operation: create ? "create_pr" : "lookup_pr", body: { head, base } });
+    return existing[0]?.html_url || (create ? "https://github.com/Owner/project/pull/15" : undefined);
+  });
+  // GitHub account access belongs to the configured Codex plugin, never an app REST token.
+  vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Direct GitHub REST must not be used"); }));
 });
 afterEach(async () => {
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
@@ -72,10 +74,10 @@ describe("GitHub Issue validation", () => {
     expect(() => githubRemote("https://token@github.com/Owner/project.git")).toThrow();
   });
   it("checks workspace ownership and confirmed write permission, and supplies body plus comments without SDK network", async () => {
-    await writeFile(path.join(workspace, ".env"), "GITHUB_TOKEN=fixture-project-token\n");
     const detail = await inspectIssue(issueUrl, workspace);
     expect(detail.context).toContain(issueData.body); expect(detail.context).toContain("Keep the Issue open until review");
-    expect(calls.every(call => call.authorization === "Bearer fixture-project-token")).toBe(true);
+    expect(plugins.inspect).toHaveBeenCalledWith(workspace, expect.objectContaining({ url: issueUrl }), undefined);
+    expect(fetch).not.toHaveBeenCalled();
     calls.length = 0;
     await expect(inspectIssue("https://github.com/Other/repo/issues/14", workspace)).rejects.toThrow("origin");
     expect(calls).toHaveLength(0);
@@ -111,7 +113,7 @@ describe("GitHub Issue validation", () => {
 describe("reviewed Git publication", () => {
   it("fingerprints new file contents including leading spaces and permits configuration examples", async () => {
     await writeFile(path.join(workspace, " leading space.txt"), "version one");
-    await writeFile(path.join(workspace, ".env.example"), "GITHUB_TOKEN=\n");
+    await writeFile(path.join(workspace, ".env.example"), "CODEX_MODEL=\n");
     const first = await reviewSnapshot(workspace, branch);
     expect(first.hasChanges).toBe(true); expect(first.summary).toContain(" leading space.txt");
     await writeFile(path.join(workspace, " leading space.txt"), "version two");
@@ -138,7 +140,7 @@ describe("reviewed Git publication", () => {
     await expect(publishIssue(workspace, issue(), branch, snapshot.fingerprint, async () => {})).rejects.toThrow("文件又变了");
     await git(workspace, ["remote", "set-url", "origin", "git@github.com:Other/repo.git"]);
     await expect(publishIssue(workspace, issue(), branch, snapshot.fingerprint, async () => {})).rejects.toThrow("origin");
-    expect(calls.some(call => call.method === "POST")).toBe(false);
+    expect(calls.some(call => call.operation === "create_pr")).toBe(false);
     await git(workspace, ["remote", "set-url", "origin", "git@github.com:Owner/project.git"]);
     await git(workspace, ["switch", "main"]);
     await expect(publishIssue(workspace, issue(), branch, snapshot.fingerprint, async () => {})).rejects.toThrow("分支已变化");
@@ -161,17 +163,16 @@ describe("reviewed Git publication", () => {
     expect(stages).toEqual(["committing", "pushing", "creating_pr"]);
     expect(await git(remote, ["rev-parse", `refs/heads/${branch}`])).toBe(await git(workspace, ["rev-parse", "HEAD"]));
     expect(await readFile(path.join(workspace, "feature.txt"), "utf8")).toBe("reviewed implementation\n");
-    const writes = calls.filter(call => call.method !== "GET");
-    expect(writes).toHaveLength(1); expect(writes[0].url.pathname).toBe("/repos/Owner/project/pulls");
+    const writes = calls.filter(call => call.operation === "create_pr");
+    expect(writes).toHaveLength(1); expect(writes[0].operation).toBe("create_pr");
     expect(writes[0].body).toMatchObject({ head: branch, base: "main" });
-    expect(String(writes[0].body?.body)).not.toMatch(/closes #|fixes #|resolves #/i);
   });
   it("reuses an existing PR after an uncertain response instead of creating another one", async () => {
     existing = [{ html_url: "https://github.com/Owner/project/pull/15" }];
     const snapshot = await reviewSnapshot(workspace, branch);
     const stages = vi.fn();
     expect(await publishIssue(workspace, issue(), branch, snapshot.fingerprint, stages)).toBe(existing[0].html_url);
-    expect(stages).not.toHaveBeenCalled(); expect(calls.some(call => call.method === "POST")).toBe(false);
+    expect(stages).not.toHaveBeenCalled(); expect(calls.some(call => call.operation === "create_pr")).toBe(false);
   });
   it("rechecks the push URL after committing and preserves the local commit if it was redirected", async () => {
     await writeFile(path.join(workspace, "feature.txt"), "reviewed\n");
@@ -180,6 +181,6 @@ describe("reviewed Git publication", () => {
       if (stage === "pushing") await git(workspace, ["remote", "set-url", "--push", "origin", "git@github.com:Other/repo.git"]);
     })).rejects.toThrow("推送地址");
     expect(await git(workspace, ["log", "-1", "--format=%s"])).toContain("Implement issue #14");
-    expect(calls.some(call => call.method === "POST")).toBe(false);
+    expect(calls.some(call => call.operation === "create_pr")).toBe(false);
   });
 });

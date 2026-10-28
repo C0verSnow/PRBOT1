@@ -20,7 +20,7 @@ if (args.includes("app-server")) {
   }
   process.exit(0);
 }
-const remote = args.includes("workspace-write");
+const remote = args.includes("workspace-write") || args.includes("read-only");
 if ((!args.includes("danger-full-access") && !remote) || !args.includes('approval_policy="never"')) throw new Error("Expected access options missing");
 if (remote && !args.some(arg => arg === "sandbox_workspace_write.network_access=false")) throw new Error("Remote network restriction missing");
 let prompt = "";
@@ -30,6 +30,18 @@ const resumed = args.includes("resume");
 const id = resumed ? args[args.indexOf("resume") + 1] : randomUUID();
 emit({ type: "thread.started", thread_id: id });
 emit({ type: "turn.started" });
+if (prompt.includes("PRBOT_GITHUB_PLUGIN_")) {
+  const created = prompt.includes("PRBOT_GITHUB_PLUGIN_PR_CREATE");
+  const inspected = prompt.includes("PRBOT_GITHUB_PLUGIN_INSPECT");
+  const data = inspected
+    ? { title: "Fixture Issue", context: "Read through the configured GitHub plugin fixture", defaultBranch: "main", canRead: true, canWrite: true, isOpen: true, isPullRequest: false }
+    : { repository: "Owner/project", head: "feature/fixture", base: "main", found: created, prUrl: created ? "https://github.com/Owner/project/pull/15" : null };
+  emit({ type: "item.completed", item: { id: "plugin", type: "mcp_tool_call", server: "github", tool: created ? "create_pull_request" : inspected ? "fetch_issue" : "search_prs", arguments: {}, status: "completed", result: { content: [] } } });
+  emit({ type: "item.completed", item: { id: "result", type: "agent_message", text: JSON.stringify(data) } });
+  emit({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 20 } });
+  process.exit(0);
+}
+
 if (prompt.includes("模拟失败")) { emit({ type: "turn.failed", error: { message: "测试服务暂时不可用" } }); process.exit(0); }
 if (prompt.includes("滚动验证")) {
   const text = Array.from({ length: 60 }, (_, index) => `阅读段落 ${index + 1}：流式更新时保留当前阅读位置。`).join("\n\n");

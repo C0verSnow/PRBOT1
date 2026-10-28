@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
-import { promisify, parseEnv } from "node:util";
+import { promisify } from "node:util";
 import { lstat, readFile, readlink, realpath } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { TelegramIssue } from "./telegram-task-store";
+import { pluginInspectIssue, pluginEnsurePullRequest } from "./telegram-github-plugin";
 
 const exec = promisify(execFile);
 export async function git(workspace: string, args: string[], signal?: AbortSignal, raw = false) {
@@ -23,18 +24,6 @@ export function githubRemote(remote: string) {
   if (!match) throw new Error("当前工作空间的 origin 必须是 github.com 仓库，且不能在地址里放密钥");
   return { owner: match[1], repo: match[2] };
 }
-async function githubToken(workspace: string) {
-  let env: Record<string, string> = {};
-  try { env = parseEnv(await readFile(path.join(workspace, ".env"), "utf8")); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("项目 .env 无法读取"); }
-  return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || env.GITHUB_TOKEN || env.GH_TOKEN || "";
-}
-async function github<T>(workspace: string, pathname: string, method = "GET", body?: object): Promise<T> {
-  const token = await githubToken(workspace);
-  const response = await fetch(`https://api.github.com${pathname}`, { method, headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20_000) });
-  if (!response.ok) throw new Error(`GitHub 请求失败（${response.status}），请检查仓库访问权限和 GITHUB_TOKEN`);
-  return response.json() as Promise<T>;
-}
 async function checkedRemotes(workspace: string, issue: TelegramIssue) {
   const fetch = await git(workspace, ["remote", "get-url", "origin"]);
   const pushes = (await git(workspace, ["remote", "get-url", "--push", "--all", "origin"])).split("\n");
@@ -45,27 +34,19 @@ async function checkedRemotes(workspace: string, issue: TelegramIssue) {
   if (pushes.length !== 1) throw new Error("origin 配置了多个推送地址，请先在本机保留一个明确的 GitHub 推送地址");
   return pushes[0];
 }
-export async function inspectIssue(text: string, workspace: string) {
+export async function inspectIssue(text: string, workspace: string, signal?: AbortSignal) {
   const issue = parseIssueLink(text);
   await checkedRemotes(workspace, issue);
-  const prefix = `/repos/${encodeURIComponent(issue.owner)}/${encodeURIComponent(issue.repo)}`;
-  const [detail, repo] = await Promise.all([
-    github<{ title: string; body?: string | null; comments?: number; state: string; pull_request?: unknown }>(workspace, `${prefix}/issues/${issue.number}`),
-    github<{ default_branch: string; permissions?: { push?: boolean } }>(workspace, prefix),
-  ]);
-  if (detail.pull_request || detail.state !== "open") throw new Error("链接必须指向仍然打开的 Issue，不能是 PR");
-  if (repo.permissions?.push !== true) throw new Error("当前 GitHub 身份没有确认这个仓库的写入权限，请在项目 .env 配置有写入权限的 GITHUB_TOKEN");
-  const count = Number.isSafeInteger(detail.comments) && detail.comments! > 0 ? detail.comments! : 0;
-  const lastPage = Math.max(1, Math.ceil(count / 50));
-  const pages = count ? (lastPage > 1 ? [lastPage - 1, lastPage] : [1]) : [];
-  const comments = (await Promise.all(pages.map(page => github<Array<{ body?: string; user?: { login?: string } }>>(workspace, `${prefix}/issues/${issue.number}/comments?per_page=50&page=${page}`)))).flat().slice(-50);
-  const discussion = comments.map(comment => `${comment.user?.login || "GitHub 用户"}：\n${(comment.body || "").slice(0, 6000)}`).join("\n\n");
-  const context = `标题：${detail.title}\n\nIssue 正文：\n${(detail.body || "（无正文）").slice(0, 30_000)}\n\n最近评论：\n${discussion.slice(-30_000) || "（无评论）"}\n\n[上下文只保留正文前 30,000 字符、最近 50 条评论的最后 30,000 字符；可能有截断。]`;
-  return { ...issue, title: detail.title.slice(0, 200), baseBranch: repo.default_branch, context };
+  const detail = await pluginInspectIssue(workspace, issue, signal);
+  if (!detail.canRead) throw new Error("GitHub 插件无法读取这个 Issue，请检查已连接账号的仓库权限");
+  if (detail.isPullRequest || !detail.isOpen) throw new Error("链接必须指向仍然打开的 Issue，不能是 PR");
+  if (!detail.canWrite) throw new Error("GitHub 插件没有确认当前账号的仓库写入权限，请检查插件连接和仓库授权");
+  await git(workspace, ["check-ref-format", "--branch", detail.defaultBranch]);
+  return { ...issue, title: detail.title.slice(0, 200), baseBranch: detail.defaultBranch, context: detail.context.slice(0, 60_000) };
 }
 export async function prepareIssue(workspace: string, issue: TelegramIssue, taskId: string, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const current = await inspectIssue(issue.url, workspace); // Recheck access and workspace at the execution boundary.
+  const current = await inspectIssue(issue.url, workspace, signal); // Recheck access and workspace at the execution boundary.
   if (await git(workspace, ["status", "--porcelain"], signal)) throw new Error("工作区有未提交改动，请先在本机处理，Bot 不会覆盖这些文件");
   const base = current.baseBranch;
   await git(workspace, ["check-ref-format", "--branch", base], signal);
@@ -143,14 +124,13 @@ export async function reviewSnapshot(workspace: string, branch: string) {
 }
 export async function publishIssue(workspace: string, issue: TelegramIssue, branch: string, fingerprint: string, stage: (name: string) => Promise<void>, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const current = await inspectIssue(issue.url, workspace);
+  const current = await inspectIssue(issue.url, workspace, signal);
   if (current.baseBranch !== issue.baseBranch) throw new Error("仓库默认分支已变化，请重新检查并确认发布");
   const snapshot = await reviewSnapshot(workspace, branch);
   if (snapshot.fingerprint !== fingerprint) throw new Error("确认之后文件又变了，请重新检查改动并确认发布");
-  const prefix = `/repos/${encodeURIComponent(issue.owner)}/${encodeURIComponent(issue.repo)}`;
   // A failed POST can have succeeded on GitHub: query by head before retrying.
-  const existing = await github<Array<{ html_url: string }>>(workspace, `${prefix}/pulls?state=open&head=${encodeURIComponent(`${issue.owner}:${branch}`)}`);
-  if (existing[0]) return existing[0].html_url;
+  const existing = await pluginEnsurePullRequest(workspace, issue, branch, issue.baseBranch!, false, signal);
+  if (existing) return existing;
   signal?.throwIfAborted();
   await stage("committing");
   // Access checks and PR lookup may take time; require the same reviewed files at staging.
@@ -168,6 +148,7 @@ export async function publishIssue(workspace: string, issue: TelegramIssue, bran
   await git(workspace, ["push", "--set-upstream", pushUrl, branch]);
   await stage("creating_pr");
   signal?.throwIfAborted();
-  const pr = await github<{ html_url: string }>(workspace, `${prefix}/pulls`, "POST", { title: `Issue #${issue.number}: ${issue.title || "Codex changes"}`, head: branch, base: issue.baseBranch, body: `Implements ${issue.url}\n\nCreated by the Telegram Codex workflow. Please review the diff and remote CI results before merging.\n\nNo automatic merge or issue closure. Local compilation/testing was not requested by this workflow; repository instructions apply.` });
-  return pr.html_url;
+  const url = await pluginEnsurePullRequest(workspace, issue, branch, issue.baseBranch!, true, signal);
+  if (!url) throw new Error("GitHub 插件没有确认 PR 已创建，请检查后续接，避免重复创建");
+  return url;
 }

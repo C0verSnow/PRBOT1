@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ThreadEvent } from "@openai/codex-sdk";
 import { consumeStream } from "../src/lib/stream";
 import { createChat, deleteChat, getChat, listChats } from "../src/lib/store";
-import { isRunning, prepareTurn, recover, reserve, stop, streamTurn } from "../src/lib/runner";
+import { isRunning, prepareTurn, recover, reserve, stop, streamTurn, clearWorkspaceQuarantine } from "../src/lib/runner";
 import { persistSettings } from "../src/lib/config";
 import { readableError } from "../src/lib/codex";
 const sdk = vi.hoisted(() => ({ options: undefined as unknown, resumed: "", make: vi.fn() }));
@@ -19,7 +19,7 @@ beforeEach(async () => {
   vi.stubEnv("PRBOT_DATA_DIR", directory); vi.stubEnv("CODEX_WORKSPACE", directory);
   sdk.resumed = ""; sdk.make.mockReset();
 });
-afterEach(async () => { vi.unstubAllEnvs(); await rm(directory, { recursive: true, force: true }); });
+afterEach(async () => { clearWorkspaceQuarantine(directory); vi.unstubAllEnvs(); await rm(directory, { recursive: true, force: true }); });
 const completion: ThreadEvent = { type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 4, reasoning_output_tokens: 0 } };
 function fixture(events: ThreadEvent[]) { sdk.make.mockImplementation(async () => ({ events: (async function* () { yield* events; })() })); }
 async function run(id: string, prompt = "你好") {
@@ -88,6 +88,13 @@ describe("Codex lifecycle and persistence", () => {
     await deleteChat(chat.id); expect(await listChats()).toEqual([]);
   });
   it("rejects path traversal", async () => expect(getChat("../../.env")).rejects.toMatchObject({ status: 404 }));
+  it("restores an uncertain remote execution barrier before web requests even without Telegram credentials", async () => {
+    const chat = await createChat();
+    const tasks = path.join(directory, "telegram", "123", "tasks"); await mkdir(tasks, { recursive: true });
+    await writeFile(path.join(tasks, "interrupted.json"), JSON.stringify({ workspace: directory, status: "interrupted", requiresStopCheck: true }));
+    await expect(prepareTurn(chat.id, "another writer")).rejects.toMatchObject({ status: 409 });
+    expect((await getChat(chat.id)).messages).toHaveLength(0);
+  });
   it("redacts configured credentials in provider errors", () => {
     vi.stubEnv("CODEX_API_KEY", "private-test-key");
     expect(readableError(new Error("private-test-key sk-secret-token"))).not.toMatch(/private-test-key|sk-secret-token/);
