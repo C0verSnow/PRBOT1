@@ -63,6 +63,14 @@ afterEach(async () => {
   vi.unstubAllGlobals(); vi.unstubAllEnvs(); await rm(directory, { recursive: true, force: true });
 });
 describe("durable Telegram worker", { timeout: 15_000 }, () => {
+  it("answers a greeting directly without execution confirmation or structured output", async () => {
+    fixture("你好，有什么可以帮你？");
+    await dispatch("你好");
+    const completed = await wait("completed");
+    expect(completed.question).toBeUndefined();
+    expect(mocks.run.mock.calls[0][1].outputSchema).toBeUndefined();
+    await vi.waitFor(() => expect(mocks.send).toHaveBeenCalledWith(credentials, "123", "你好，有什么可以帮你？"));
+  });
   it("requires explicit confirmation, then resumes a stable thread across questions", async () => {
     fixture(result("waiting_input", { text: "用哪个目录？", choices: ["src", "lib"], highRisk: false }));
     await dispatch("完成代码修改"); expect(mocks.open).not.toHaveBeenCalled();

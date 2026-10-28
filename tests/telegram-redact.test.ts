@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { redactTelegram, secretsFromEnv } from "../src/lib/telegram-redact";
 
 describe("Telegram redaction at the storage and transport boundary", () => {
+  it("keeps path separators and bot commands when an environment credential is punctuation", () => {
+    const text = "/Users/troy/Desktop/2 /confirm /status C:\\project\\src";
+    expect(redactTelegram(text, ["/", "\\", ".", "1"])).toBe(text);
+    expect(redactTelegram("PIN=abc abc alphabet", ["abc"])).toBe("PIN=[已隐藏密钥] [已隐藏密钥] alphabet");
+  });
   it("removes configured secrets and their URL-encoded forms", () => {
     const secret = "private/value+with spaces";
     const value = redactTelegram(`command ${secret} ${encodeURIComponent(secret)} normal progress`, [secret]);
