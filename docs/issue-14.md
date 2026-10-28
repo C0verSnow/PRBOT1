@@ -92,7 +92,7 @@ Bot：请发送 GitHub Issue 链接。
 Bot：校验本地仓库，通过 Codex GitHub 插件读取 Issue 和评论、检查权限，随后直接执行。
 Bot：检查干净工作区，fetch 默认分支，建立独立 Feature 分支。
 Codex：读取已获取的需求，修改代码和文档，遇到问题时等待回复。
-Bot：显示改动摘要，单独询问是否提交、推送和创建 PR。
+Bot：显示改动摘要，自动进入提交、推送和 PR 交付。
 Bot：本机 Git 提交 → 推送 → Codex GitHub 插件创建 PR → awaiting_review。
 ```
 

@@ -25,7 +25,7 @@ describe("Telegram through the actual SDK subprocess transport (remote CI fixtur
     expect(resumed.id).toBe(thread.id);
     expect(next.finalResponse).toContain("接着上次对话");
   });
-  it("uses the same configured SDK for GitHub plugin inspection and confirmed PR delivery", async () => {
+  it("uses the same configured SDK for GitHub plugin inspection and automatic PR delivery", async () => {
     const issue = { owner: "Owner", repo: "project", number: 14, url: "https://github.com/Owner/project/issues/14" };
     const details = await pluginInspectIssue(directory, issue);
     expect(details.canWrite).toBe(true); expect(details.context).toContain("GitHub plugin fixture");

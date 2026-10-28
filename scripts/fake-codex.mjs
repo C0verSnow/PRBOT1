@@ -28,6 +28,9 @@ if (!args.includes("--skip-git-repo-check")) {
 if (args.includes("workspace-write") || args.includes("sandbox_workspace_write.network_access=false")) throw new Error("Unexpected restricted Telegram policy");
 let prompt = "";
 for await (const chunk of process.stdin) prompt += chunk;
+if (prompt === "模拟启动退出" || prompt.includes("用户消息：\n模拟启动退出\n")) {
+  process.stderr.write("Reading prompt from stdin... Not inside a trusted directory and --skip-git-repo-check was not specified"); process.exit(1);
+}
 const emit = event => process.stdout.write(JSON.stringify(event) + "\n");
 const resumed = args.includes("resume");
 const id = resumed ? args[args.indexOf("resume") + 1] : randomUUID();

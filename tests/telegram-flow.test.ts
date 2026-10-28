@@ -93,5 +93,13 @@ describe.skipIf(process.env.PRBOT_TEST_REDIS !== "1")("Telegram → worker → S
     expect(second.id).not.toBe(first.id); expect(second.threadId).toBe(first.threadId);
     await vi.waitFor(() => expect(sent.some(message => String(message.body.text).includes("接着上次对话"))).toBe(true), { timeout: 10_000 });
     expect(await store.listTasks("123", "123", directory)).toHaveLength(2);
+
+    await receive(update(9, "模拟启动退出")); const failed = await waitForTask("failed");
+    expect(failed.error).toContain("Codex Exec exited with code 1");
+    expect(failed.requiresStopCheck).toBe(false); expect(failed.stage).toBe("failed");
+    await receive(update(10, "啥意思？")); const explained = await waitForTask("completed");
+    expect(explained.threadId).toBe(first.threadId);
+    await receive(update(11, "/new"));
+    expect(sent.some(message => String(message.body.text).includes("已开启新 Codex 会话"))).toBe(true);
   }, 30_000);
 });
