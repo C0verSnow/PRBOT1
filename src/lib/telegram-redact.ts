@@ -11,9 +11,16 @@ export function redactTelegram(text: string, secrets: readonly string[] = []) {
   let value = text;
   // Longest first prevents a short credential prefix exposing the remainder of a longer one.
   for (const secret of [...new Set(secrets.filter(Boolean))].sort((a, b) => b.length - a.length)) {
-    value = value.split(secret).join(HIDDEN);
-    const encoded = encodeURIComponent(secret);
-    if (encoded !== secret) value = value.split(encoded).join(HIDDEN);
+    // Punctuation-only configuration values (notably / and \) are not useful
+    // literal credentials. Short alphanumeric values need token boundaries.
+    if (!/[\p{L}\p{N}]/u.test(secret)) continue;
+    for (const candidate of new Set([secret, encodeURIComponent(secret)])) {
+      if (secret.length >= 8) value = value.split(candidate).join(HIDDEN);
+      else {
+        const escaped = candidate.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        value = value.replace(new RegExp(`(?<![\\p{L}\\p{N}_/\\\\.-])${escaped}(?![\\p{L}\\p{N}_/\\\\.-])`, "gu"), HIDDEN);
+      }
+    }
   }
   return value
     .replace(/-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z]+ )?PRIVATE KEY-----/g, HIDDEN)

@@ -20,9 +20,12 @@ if (args.includes("app-server")) {
   }
   process.exit(0);
 }
-const remote = args.includes("workspace-write") || args.includes("read-only");
-if ((!args.includes("danger-full-access") && !remote) || !args.includes('approval_policy="never"')) throw new Error("Expected access options missing");
-if (remote && !args.some(arg => arg === "sandbox_workspace_write.network_access=false")) throw new Error("Remote network restriction missing");
+const readOnly = args.includes("read-only");
+if ((!args.includes("danger-full-access") && !readOnly) || !args.includes('approval_policy="never"')) throw new Error("Expected access options missing");
+if (!args.includes("--skip-git-repo-check")) {
+  process.stderr.write("Not inside a trusted directory and --skip-git-repo-check was not specified"); process.exit(1);
+}
+if (args.includes("workspace-write") || args.includes("sandbox_workspace_write.network_access=false")) throw new Error("Unexpected restricted Telegram policy");
 let prompt = "";
 for await (const chunk of process.stdin) prompt += chunk;
 const emit = event => process.stdout.write(JSON.stringify(event) + "\n");
@@ -75,5 +78,5 @@ if (prompt.includes("写入测试文件")) {
 }
 emit({ type: "item.started", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "", status: "in_progress" } });
 emit({ type: "item.completed", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "CI fixture workspace", status: "completed", exit_code: 0 } });
-emit({ type: "item.completed", item: { id: "msg", type: "agent_message", text: remote ? JSON.stringify({ status: "completed", summary: resumed ? "远程原线程已继续" : "远程任务已处理", question: null }) : resumed ? "已接着上次对话继续。\n\n```ts\nconst continued = true;\n```" : "你好！我已连接到当前项目。\n\n- 可以阅读代码\n- 可以修改文件" } });
+emit({ type: "item.completed", item: { id: "msg", type: "agent_message", text: args.includes("--output-schema") ? JSON.stringify({ status: "completed", summary: resumed ? "远程原线程已继续" : "远程任务已处理", question: null }) : resumed ? "已接着上次对话继续。\n\n```ts\nconst continued = true;\n```" : "你好！我已连接到当前项目。\n\n- 可以阅读代码\n- 可以修改文件" } });
 emit({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 10 } });

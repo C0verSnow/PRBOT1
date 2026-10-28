@@ -22,7 +22,6 @@ function dispatch(text: string, action: "message" | "confirm" | "continue" | "ca
 }
 async function current() { const session = await store.loadSession("123", "123", directory); return session.taskId ? store.loadTask(session.taskId) : undefined; }
 async function wait(status: TelegramTask["status"]) { await vi.waitFor(async () => expect((await current())?.status).toBe(status), { timeout: 5000 }); return (await current())!; }
-async function confirm() { const task = (await current())!; await dispatch(task.question!.id, "confirm", task.question!.id); }
 const result = (status = "completed", question: object | null = null) => JSON.stringify({ status, summary: "已处理", question });
 function fixture(text: string) {
   mocks.run.mockImplementation(async () => ({ events: (async function* () {
@@ -62,42 +61,120 @@ afterEach(async () => {
   await vi.waitFor(() => expect((globalThis as { prbotTelegramJobs?: Map<string, unknown> }).prbotTelegramJobs?.size || 0).toBe(0));
   vi.unstubAllGlobals(); vi.unstubAllEnvs(); await rm(directory, { recursive: true, force: true });
 });
+async function seed(fields: Partial<TelegramTask> = {}) {
+  const stamp = new Date().toISOString();
+  const task: TelegramTask = { id: "seed-task", userId: "123", chatId: "123", workspace: directory, kind: "chat", status: "failed", stage: "failed", prompt: "原任务", pending: [], createdAt: stamp, updatedAt: stamp, ...fields };
+  await store.saveTask(task);
+  await store.saveSession({ userId: "123", chatId: "123", workspace: directory, taskId: task.id, threadId: task.threadId, updatedAt: stamp });
+  return task;
+}
+function issueFixture() {
+  mocks.inspect.mockResolvedValue({ owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", title: "Issue", baseBranch: "main" });
+  mocks.prepare.mockResolvedValue({ branch: "feature/issue-14", baseBranch: "main" });
+  mocks.snapshot.mockResolvedValue({ fingerprint: "reviewed", summary: "1 file changed", hasChanges: true });
+  mocks.publish.mockResolvedValue("https://github.com/owner/repo/pull/15");
+  fixture(result("ready_to_publish"));
+}
 describe("durable Telegram worker", { timeout: 15_000 }, () => {
-  it("answers a greeting directly without execution confirmation or structured output", async () => {
-    fixture("你好，有什么可以帮你？");
-    await dispatch("你好");
-    const completed = await wait("completed");
-    expect(completed.question).toBeUndefined();
+  it("answers greetings directly and continues the same thread with natural language", async () => {
+    fixture("你好，有什么可以帮你？"); await dispatch("你好");
+    const first = await wait("completed"); expect(first.question).toBeUndefined();
     expect(mocks.run.mock.calls[0][1].outputSchema).toBeUndefined();
     await vi.waitFor(() => expect(mocks.send).toHaveBeenCalledWith(credentials, "123", "你好，有什么可以帮你？"));
+    fixture("我可以和你聊天，也可以按要求操作项目。"); await dispatch("你能做什么？");
+    const next = await wait("completed"); expect(next.id).not.toBe(first.id);
+    expect(mocks.open).toHaveBeenLastCalledWith("stable-thread", { workspace: directory });
+    expect(mocks.run.mock.calls.at(-1)?.[0]).toContain("danger-full-access");
   });
-  it("requires explicit confirmation, then resumes a stable thread across questions", async () => {
-    fixture(result("waiting_input", { text: "用哪个目录？", choices: ["src", "lib"], highRisk: false }));
-    await dispatch("完成代码修改"); expect(mocks.open).not.toHaveBeenCalled();
-    const initial = (await current())!; expect(initial.question?.highRisk).toBe(true);
-    await confirm(); const question = await wait("waiting_input");
-    expect(question.threadId).toBe("stable-thread"); expect(question.question?.text).toBe("用哪个目录？");
-    fixture(result()); await dispatch("src"); await wait("completed");
+  it("sends acknowledgement before starting the worker", async () => {
+    fixture("你好"); let acknowledged: (() => void) | undefined;
+    const response = dispatchTelegram({ text: "你好", userId: "123", chatId: "123", workspace: directory, credentials, settingsKey: settingsKey(), reply: () => new Promise<void>(resolve => { acknowledged = resolve; }) });
+    await vi.waitFor(() => expect(acknowledged).toBeDefined()); expect(mocks.open).not.toHaveBeenCalled();
+    acknowledged!(); await response; await wait("completed");
+  });
+  it("keeps the original request and queued follow-up at a turn boundary", async () => {
+    fixture("已处理"); const lock = reserve("other-owner", directory);
+    try { await dispatch("原始任务"); await dispatch("补充要求"); expect((await current())?.pending).toEqual(["原始任务", "补充要求"]); }
+    finally { lock.release(); }
+    await wait("completed"); expect(mocks.run.mock.calls[0][0]).toContain("原始任务\n\n补充要求");
+  });
+  it("delivers an Issue PR automatically and rejects stale buttons", async () => {
+    issueFixture(); await dispatch("", "finishissue"); await dispatch("https://github.com/owner/repo/issues/14");
+    const published = await wait("awaiting_review");
+    expect(published.prUrl).toMatch(/pull\/15$/); expect(published.question).toBeUndefined();
+    expect(mocks.publish).toHaveBeenCalledTimes(1); expect(mocks.prepare).toHaveBeenCalledTimes(1);
+    expect(await dispatch("expired", "confirm", "expired")).toContain("过期");
+  });
+  it("asks only for missing Issue information and accepts a plain answer", async () => {
+    issueFixture(); fixture(result("waiting_input", { text: "用哪个目录？", choices: ["src", "lib"], highRisk: true }));
+    await dispatch("https://github.com/owner/repo/issues/14");
+    const question = await wait("waiting_input"); expect(question.question?.highRisk).toBe(false);
+    expect(mocks.publish).not.toHaveBeenCalled();
+    fixture(result("ready_to_publish")); await dispatch("src"); await wait("awaiting_review");
     expect(mocks.open).toHaveBeenLastCalledWith("stable-thread", { workspace: directory });
     expect(mocks.run.mock.calls.at(-1)?.[0]).toContain("回答问题");
-    expect((await store.loadSession("123", "123", directory)).threadId).toBe("stable-thread");
   });
-  it("keeps the original request when a follow-up arrives before the turn starts", async () => {
-    fixture(result()); await dispatch("原始任务");
-    const lock = reserve("test-other-owner", directory);
-    try { await confirm(); await dispatch("补充要求"); expect((await current())?.pending).toEqual(["原始任务", "补充要求"]); }
-    finally { lock.release(); }
-    await wait("completed");
-    expect(mocks.run.mock.calls[0][0]).toContain("原始任务\n\n补充要求");
-  });
-  it("feeds a model confirmation into the same thread instead of repeating the original prompt", async () => {
-    fixture(result("waiting_input", { text: "确认修改迁移文件？", choices: [], highRisk: true }));
-    await dispatch("修改迁移"); await confirm(); await wait("waiting_input");
-    fixture(result()); await confirm(); await wait("completed");
-    expect(mocks.run.mock.calls.at(-1)?.[0]).toContain("用户已明确确认问题");
+  it("keeps publish-time follow-ups on the same task, thread and PR without confirmation", async () => {
+    issueFixture(); let finishPublish: ((value: string) => void) | undefined;
+    mocks.publish.mockImplementationOnce(() => new Promise<string>(resolve => { finishPublish = resolve; }));
+    await dispatch("https://github.com/owner/repo/issues/14");
+    await vi.waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1));
+    const first = (await current())!; await dispatch("发布时追加：更新帮助文档");
+    finishPublish!("https://github.com/owner/repo/pull/15"); const next = await wait("awaiting_review");
+    expect(next.id).toBe(first.id); expect(mocks.publish).toHaveBeenCalledTimes(2);
+    expect(mocks.prepare).toHaveBeenCalledTimes(1);
+    expect(mocks.run.mock.calls.at(-1)?.[0]).toContain("发布时追加：更新帮助文档");
     expect(mocks.open).toHaveBeenLastCalledWith("stable-thread", { workspace: directory });
   });
-  it("cancels an active turn, quarantines its workspace, and requires a fresh stop check", async () => {
+  it("applies review-time feedback to the existing feature branch and PR", async () => {
+    issueFixture(); await dispatch("https://github.com/owner/repo/issues/14"); const published = await wait("awaiting_review");
+    await dispatch("修复 Review 中发现的边界情况"); await wait("awaiting_review");
+    expect((await current())?.id).toBe(published.id); expect(mocks.prepare).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(2); expect(mocks.run.mock.calls.at(-1)?.[0]).toContain("边界情况");
+  });
+  it("does not quarantine an SDK process that explicitly exited with code 1", async () => {
+    mocks.run.mockRejectedValueOnce(new Error("Codex Exec exited with code 1: Not inside a trusted directory"));
+    await dispatch("你好"); const failed = await wait("failed");
+    expect(failed.requiresStopCheck).toBe(false); expect(failed.stage).toBe("failed");
+    const lock = reserve("after-exit", directory); lock.release();
+    expect(await dispatch("", "new")).toContain("已开启新");
+  });
+  it("drains a turn.failed stream before reporting the failure without a false stop lock", async () => {
+    let drained = false;
+    mocks.run.mockResolvedValueOnce({ events: (async function* () { yield { type: "turn.failed", error: { message: "登录已失效" } }; drained = true; })() });
+    await dispatch("你好"); const task = await wait("failed");
+    expect(drained).toBe(true); expect(task.requiresStopCheck).toBe(false);
+    expect(task.error).toBe("登录已失效");
+  });
+  it("lets a follow-up ask about a failure without replaying the original task", async () => {
+    await seed({ error: "Codex 登录已过期", threadId: "previous-thread", inFlight: ["删除旧文件"] });
+    fixture("上次失败是因为登录过期，请在本机重新登录。"); await dispatch("啥意思？"); await wait("completed");
+    const prompt = mocks.run.mock.calls[0][0]; expect(prompt).toContain("登录已过期"); expect(prompt).toContain("啥意思？");
+    expect(prompt).not.toContain("删除旧文件"); expect(mocks.open).toHaveBeenCalledWith("previous-thread", { workspace: directory });
+  });
+  it("checks uncertain previous results on continue and does not accumulate default requests", async () => {
+    await seed({ inFlight: ["已接受的补充要求"], threadId: "stable-thread", error: "进程启动失败" });
+    const lock = reserve("hold", directory); fixture("恢复完成");
+    try {
+      await dispatch("", "continue"); await dispatch("", "continue");
+      const task = (await current())!; expect(task.pending).toEqual(["检查上次任务和保留的工作区后继续，不要重复已经完成的操作。"]);
+      expect(task.inFlight).toEqual([]); expect(task.recoveryContext).toContain("已接受的补充要求");
+    } finally { lock.release(); }
+    await wait("completed"); expect(mocks.run.mock.calls[0][0]).toContain("不能直接重复");
+  });
+  it("cleans stale stage, question and error when cancelling queued or waiting work", async () => {
+    await seed({ status: "waiting_input", stage: "confirm_execution", error: "旧错误", question: { id: "old", text: "旧确认", highRisk: true } });
+    await dispatch("", "cancel"); const cancelled = (await current())!;
+    expect(cancelled.status).toBe("cancelled"); expect(cancelled.stage).toBe("cancelled");
+    expect(cancelled.error).toBeUndefined(); expect(cancelled.question).toBeUndefined();
+    expect(await dispatch("", "new")).toContain("已开启新");
+  });
+  it("allows new to replace a clarification and keeps old confirmation IDs stale", async () => {
+    await seed({ status: "waiting_input", stage: "waiting_input", question: { id: "old", text: "目录？" } });
+    expect(await dispatch("", "new")).toContain("已开启新");
+    expect(await dispatch("old", "confirm", "old")).toContain("过期");
+  });
+  it("retains a real abort lock until the user has checked local child processes", async () => {
     mocks.run.mockImplementation(async (_prompt: string, options: { signal: AbortSignal }) => ({ events: (async function* () {
       yield { type: "thread.started", thread_id: "stable-thread" };
       await new Promise<void>((_resolve, reject) => {
@@ -105,107 +182,28 @@ describe("durable Telegram worker", { timeout: 15_000 }, () => {
         else options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
       });
     })() }));
-    await dispatch("长任务"); await confirm(); await wait("running");
-    await vi.waitFor(() => expect(mocks.run).toHaveBeenCalled());
+    await dispatch("长任务"); await vi.waitFor(() => expect(mocks.run).toHaveBeenCalled());
     await dispatch("", "cancel"); const cancelled = await wait("cancelled");
-    expect(cancelled.requiresStopCheck).toBe(true); expect(cancelled.threadId).toBe("stable-thread");
-    expect(cancelled.inFlight).toEqual(["长任务"]);
+    expect(cancelled.stage).toBe("cancelled"); expect(cancelled.error).toBeUndefined(); expect(cancelled.requiresStopCheck).toBe(true);
     expect(() => reserve("another-writer", directory)).toThrow("子进程");
-    await dispatch("", "continue"); const recovery = (await current())!;
-    expect(recovery.question?.text).toContain("子进程已经停止");
-    expect(recovery.question?.text).toContain("可能已经送达 Codex"); expect(recovery.question?.text).toContain("长任务");
-    fixture(result()); await confirm(); await wait("completed");
-    expect(mocks.run.mock.calls.at(-1)?.[0]).toContain("长任务"); expect((await current())?.inFlight).toEqual([]);
+    expect(await dispatch("", "new")).toContain("/new 也不能"); expect(await dispatch("", "continue")).toContain("已在本机确认停止");
+    fixture("已核对上次结果并续接"); await dispatch("已在本机确认停止", "continue"); await wait("completed");
     const available = reserve("after-stop-check", directory); available.release();
   });
-  it("rejects stale confirmation and keeps issue delivery waiting for review", async () => {
-    mocks.inspect.mockResolvedValue({ owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", title: "Issue", baseBranch: "main" });
-    mocks.prepare.mockResolvedValue({ branch: "feature/issue-14", baseBranch: "main" });
-    mocks.snapshot.mockResolvedValue({ fingerprint: "reviewed", summary: "1 file changed", hasChanges: true });
-    mocks.publish.mockResolvedValue("https://github.com/owner/repo/pull/15");
-    fixture(result("ready_to_publish"));
-    await dispatch("", "finishissue"); await dispatch("https://github.com/owner/repo/issues/14"); await wait("waiting_input");
-    await dispatch("expired", "confirm", "expired"); expect(mocks.open).not.toHaveBeenCalled();
-    await confirm(); const ready = await wait("waiting_input"); expect(ready.stage).toBe("confirm_publish");
-    expect(mocks.publish).not.toHaveBeenCalled();
-    await confirm(); const published = await wait("awaiting_review");
-    expect(published.prUrl).toMatch(/pull\/15$/); expect(mocks.publish).toHaveBeenCalledTimes(1);
-  });
-  it("persists a drained follow-up before SDK startup and replays it only after recovery confirmation", async () => {
-    fixture(result());
-    mocks.open.mockImplementationOnce(async () => {
-      expect((await current())?.inFlight).toEqual(["已接受的补充要求"]);
-      throw new Error("process stopped before SDK accepted the follow-up");
-    });
-    await dispatch("原任务");
-    const task = (await current())!; task.pending = ["已接受的补充要求"]; task.threadId = "stable-thread"; await store.saveTask(task);
-    await confirm(); const failed = await wait("failed");
-    expect(failed.inFlight).toEqual(["已接受的补充要求"]); expect(failed.pending).toEqual([]); expect(mocks.run).not.toHaveBeenCalled();
-    await recoverTelegramTasks(credentials, settingsKey()); expect(mocks.open).toHaveBeenCalledTimes(1);
-    await dispatch("", "continue");
-    expect((await current())?.question?.text).toContain("已接受的补充要求");
-    expect((await current())?.question?.text).toContain("明确授权再次送达"); expect(mocks.run).not.toHaveBeenCalled();
-    await confirm(); const completed = await wait("completed");
-    expect(mocks.run.mock.calls[0][0]).toContain("已接受的补充要求"); expect(completed.inFlight).toEqual([]);
-  });
-  it("never auto-replays an unconfirmed in-flight batch from a queued checkpoint", async () => {
-    await dispatch("原任务"); const task = (await current())!;
-    task.status = "queued"; task.inFlight = ["未知是否送达的补充要求"]; task.pending = []; delete task.question; await store.saveTask(task);
-    await recoverTelegramTasks(credentials, settingsKey());
-    expect((await current())?.status).toBe("interrupted"); expect((await current())?.inFlight).toEqual(["未知是否送达的补充要求"]);
-    expect(mocks.open).not.toHaveBeenCalled();
-  });
-  it("refuses to start the SDK when an existing issue task's local branch changed", async () => {
-    fixture(result("ready_to_publish")); await dispatch("Issue follow-up");
-    const task = (await current())!;
-    task.kind = "issue"; task.issue = { owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", baseBranch: "main" };
-    task.branch = "feature/issue-14"; await store.saveTask(task); mocks.git.mockResolvedValue("main");
-    await confirm(); const failed = await wait("failed");
-    expect(failed.error).toContain("分支已变化"); expect(mocks.open).not.toHaveBeenCalled(); expect(mocks.run).not.toHaveBeenCalled();
-  });
-  it("keeps publish-time follow-ups on the same task, thread, branch and existing PR", async () => {
-    const url = "https://github.com/owner/repo/pull/15";
-    mocks.inspect.mockResolvedValue({ owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", title: "Issue", baseBranch: "main" });
-    mocks.prepare.mockResolvedValue({ branch: "feature/issue-14", baseBranch: "main" });
-    mocks.snapshot.mockResolvedValue({ fingerprint: "reviewed", summary: "1 file changed", hasChanges: true });
-    let finishPublish: ((value: string) => void) | undefined;
-    mocks.publish.mockResolvedValue(url).mockImplementationOnce(() => new Promise<string>(resolve => { finishPublish = resolve; }));
-    fixture(result("ready_to_publish"));
-    await dispatch("https://github.com/owner/repo/issues/14"); await wait("waiting_input"); await confirm();
-    const ready = await wait("waiting_input"); expect(ready.stage).toBe("confirm_publish");
-    await confirm(); await vi.waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1));
-    await dispatch("发布时追加：更新帮助文档"); expect((await current())?.pending).toContain("发布时追加：更新帮助文档");
-    finishPublish!(url);
-    const followup = await wait("waiting_input");
-    expect(followup).toMatchObject({ id: ready.id, stage: "confirm_execution", threadId: "stable-thread", branch: "feature/issue-14", prUrl: url });
-    expect(followup.question?.text).toContain("更新帮助文档"); expect(mocks.run).toHaveBeenCalledTimes(1);
-    await confirm(); const nextReady = await wait("waiting_input"); expect(nextReady.stage).toBe("confirm_publish");
-    expect(mocks.open).toHaveBeenLastCalledWith("stable-thread", { workspace: directory });
-    expect(mocks.run.mock.calls.at(-1)?.[0]).toContain("发布时追加：更新帮助文档"); expect(mocks.prepare).toHaveBeenCalledTimes(1);
-    await confirm(); expect((await wait("awaiting_review")).prUrl).toBe(url); expect(mocks.publish).toHaveBeenCalledTimes(2);
-  });
-  it("requires confirmation for review-time messages and retains the issue PR context", async () => {
-    const url = "https://github.com/owner/repo/pull/15";
-    mocks.inspect.mockResolvedValue({ owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", title: "Issue", baseBranch: "main" });
-    mocks.prepare.mockResolvedValue({ branch: "feature/issue-14", baseBranch: "main" });
-    mocks.snapshot.mockResolvedValue({ fingerprint: "reviewed", summary: "1 file changed", hasChanges: true }); mocks.publish.mockResolvedValue(url);
-    fixture(result("ready_to_publish"));
-    await dispatch("https://github.com/owner/repo/issues/14"); await wait("waiting_input"); await confirm(); await wait("waiting_input"); await confirm();
-    const published = await wait("awaiting_review");
-    await dispatch("Review 补充：修复边界情况");
-    const followup = (await current())!;
-    expect(followup).toMatchObject({ id: published.id, kind: "issue", status: "waiting_input", stage: "confirm_execution", branch: "feature/issue-14", prUrl: url, threadId: "stable-thread" });
-    expect(mocks.run).toHaveBeenCalledTimes(1);
-    await confirm(); await wait("waiting_input"); expect(mocks.run.mock.calls.at(-1)?.[0]).toContain("Review 补充：修复边界情况");
-    expect(mocks.prepare).toHaveBeenCalledTimes(1); await confirm(); await wait("awaiting_review");
-  });
-  it("marks a dead runner interrupted after restart without replaying the task", async () => {
-    await dispatch("restart check"); const task = (await current())!;
-    task.status = "running"; task.runner = { pid: 2147483647, host: os.hostname(), startedAt: new Date().toISOString() }; await store.saveTask(task);
-    task.inFlight = ["重启前已取出的补充要求"]; task.pending = []; await store.saveTask(task);
+  it("never auto-replays an uncertain queued checkpoint after restart", async () => {
+    await seed({ status: "queued", inFlight: ["未知是否送达的要求"], pending: [] });
     await recoverTelegramTasks(credentials, settingsKey());
     expect((await current())?.status).toBe("interrupted"); expect(mocks.open).not.toHaveBeenCalled();
-    expect((await current())?.requiresStopCheck).toBe(true);
-    expect((await current())?.inFlight).toEqual(["重启前已取出的补充要求"]);
+  });
+  it("refuses SDK writes when an existing Issue branch changed", async () => {
+    issueFixture(); await seed({ kind: "issue", branch: "feature/issue-14", issue: { owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", baseBranch: "main" } });
+    mocks.git.mockResolvedValue("main"); await dispatch("", "continue"); const failed = await wait("failed");
+    expect(failed.error).toContain("分支已变化"); expect(mocks.open).not.toHaveBeenCalled();
+  });
+  it("marks dead runners interrupted on restart and retains unreconciled input", async () => {
+    await seed({ status: "running", runner: { pid: 2147483647, host: os.hostname(), startedAt: new Date().toISOString() }, inFlight: ["重启前请求"] });
+    await recoverTelegramTasks(credentials, settingsKey()); const interrupted = (await current())!;
+    expect(interrupted.status).toBe("interrupted"); expect(interrupted.requiresStopCheck).toBe(true);
+    expect(interrupted.inFlight).toEqual(["重启前请求"]); expect(mocks.open).not.toHaveBeenCalled();
   });
 });
