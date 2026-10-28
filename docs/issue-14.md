@@ -7,7 +7,7 @@ Telegram 负责收消息和显示结果，PRBOT 的常驻 Node 进程负责任�
 沿用 [README](../README.md) 的安装与远端构建交付方式。运行 PRBOT 的主机需要可用的 Codex 登录或 API key，以及持久化的项目目录、`PRBOT_DATA_DIR` 和 Codex 会话目录。只运行一个常驻 Node 服务进程；不适合请求结束即退出的 Serverless Functions，也不支持跨主机接管同一个本地工作空间。
 
 1. 在设置页选择本机项目的绝对路径。Issue 流程要求该目录已经是 Git 仓库，工作区干净，`origin` 的读取和唯一推送地址都对应同一个 GitHub 仓库。Bot 不替用户选择或克隆任意链接中的仓库。
-2. 在 Infisical Cloud 所选项目、环境的根目录准备 `TELEGRAM_BOT_TOKEN`、`UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`。使用只允许读取这些密钥的 Machine Identity，并启用 Universal Auth。
+2. 在 Infisical Cloud 所选项目、环境的根目录准备 `PR_BOT_TOKEN`（兼容旧名 `TELEGRAM_BOT_TOKEN`）、`UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`。使用只允许读取这些密钥的 Machine Identity，并启用 Universal Auth。
 3. 在 PRBOT 设置页填写 Infisical Project ID、Client ID、Client Secret、环境名；在 Telegram 页填写允许的数字用户 ID（多个用逗号分开）并启用。只接收白名单用户的私聊消息和按钮操作，群聊和未授权用户不会执行任务。`/id` 也只回复已授权用户。
 4. Issue 读取、评论获取、权限检查和 PR 创建复用当前 Codex 的 GitHub 插件。运行 PRBOT 的同一系统账户、同一 Codex 配置中，必须实际启用并连接该插件，且已授权目标仓库的读取和 PR 创建权限。聊天侧能看到 GitHub 插件，不等于另一个 SDK 主机已经接入；插件缺失、未登录或仓库无权限时会明确失败，不自动绕到另一套认证。
 5. Git commit 的姓名邮箱、SSH key 或 credential helper 仍要在本机事先配置。提交与推送使用本机现有 Git 身份和凭据；连接 GitHub 插件不会自动配置 Git 推送。无需为本流程另配 GitHub API Token。
@@ -119,7 +119,9 @@ Feature 分支形如 `feature/prbot-issue-14-<任务编号前八位>`。发布�
 
 执行过程缓存命令摘要、输出尾部、文件变化、工具事件和最终回复；实时消息合并发送，不逐行刷屏。`/logs` 每次取五条事件，回复末尾的 `/logs <游标>` 可继续读取；没有新日志时也保留游标。单个事件最多保留 16,000 个字符，命令输出尾部最多 12,000 个字符；正文超过 Telegram 单条限制会按最多 4,000 个 UTF-16 单元分段，不拆开 emoji 的代理对。
 
-`/cancel` 不回滚文件、不删除分支、不撤销已经发生的 push。停止请求发出后，若 SDK 子进程是否已经退出无法确认，工作空间会被锁住，网页与 Telegram 都不能再启动写入。需要在本机检查原 Codex 子进程、Git 工作区和保留的 Thread，再使用 `/continue` 并明确确认；仅凭 Redis 锁过期不能证明原执行已经停止。
+`/cancel` 不回滚文件、不删除分支、不撤销已经发生的 push。停止请求发出后，若 Codex 或 Git 子进程是否已经退出无法确认，工作空间会被锁住，网页与 Telegram 都不能再启动写入。需要在本机检查原 Codex 子进程、Git 工作区和保留的 Thread，再使用 `/continue` 并明确确认；仅凭 Redis 锁过期不能证明原执行已经停止。
+
+补充要求从待处理队列取出后，会先保存为 `inFlight` 批次，直到这一轮完成才清除。重启或连接中断时不会丢掉已接收的回复；检查 Thread、文件和已完成操作后，恢复确认会明确询问是否允许把这个不确定批次再次送达。发布期间或 PR 等待 Review 时收到的新要求，经过确认后仍接着原任务、Thread、分支和 PR，不另建冲突任务。
 
 服务重启后会核对已保存的任务。明确仍在原运行器执行的任务不能重复启动；未知执行标为中断，保留上下文供检查。已确认排队但尚未执行的任务在配置和授权仍匹配时可以重新调度。运行异常、网络断开或超时不直接重放原 Prompt；先检查 `/status` 和 `/logs`，再 `/continue`。Telegram 发消息失败也不能触发整项开发任务重做。
 
@@ -143,3 +145,9 @@ GitHub 插件沿用运行主机已连接插件的网络和授权范围，不受�
 已在 GitHub 检索维护活跃、许可证明确的 [grammY](https://github.com/grammyjs/grammY)、[Telegraf](https://github.com/telegraf/telegraf) 和 [Upstash redis-js](https://github.com/upstash/redis-js)，比较实现、依赖和已知问题后借鉴会话隔离、顺序接收、持久化和租约设计。完整链接与 Codex SDK 0.164.0 能力核对见 [研究记录](issue-14-research.md)。没有复制来源不明的代码。
 
 测试交给仓库现有的 [GitHub Actions](https://github.com/C0verSnow/PRBOT1/actions/workflows/ci.yml)：指令与权限、Webhook、去重、任务状态、问题回复、取消、重启恢复、日志分页与脱敏、GitHub 链接与交付状态。Redis Lua 集成测试使用 CI Redis 服务；模型/Telegram/GitHub 插件协议测试使用隔离替身，不连接真实用户 Bot 或付费模型。没有进行本地编译验证；真实 Telegram、真实 Codex 推理、主机插件连接及实际部署仍需要使用自己的账户验收，不能把替身结果当成实机通过。
+
+### 可选真实服务检查
+
+现有组织 Secrets 中的 `INFISICAL_CLIENT_ID`、`INFISICAL_CLIENT_SECRET`、`INFISICAL_PROJECT_ID` 和 `INFISICAL_ENVIRONMENT` 可供 GitHub Actions 手动启用 `live_services`。它通过 Infisical 读取现有 `PR_BOT_TOKEN` 和 Upstash 两项，调用 Telegram `getMe`，并验证 Redis PING 与带随机前缀、60 秒 TTL 的临时键，最后清理。不会轮询消费更新、发送 Telegram 消息或调用付费模型。允许操作 Bot 的 ID 已有 `PRBOT_TELEGRAM_ACTOR_ID`，启用应用时仍在设置页填写白名单。
+
+组织 Secrets 需要允许 PRBOT1 仓库使用；此检查默认不运行，也不会在 PR 中读取组织密钥。完整 Codex 与 GitHub 插件交互使用运行主机已经连接的账号配置，不能把这个服务连通性检查当作真实模型和工具审批验收。

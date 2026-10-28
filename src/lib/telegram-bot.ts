@@ -61,8 +61,8 @@ export function parseTelegramCommand(text: string): Command | undefined {
   const value = text.trim();
   const slash = /^\/([a-z][a-z0-9_]*)(?:@[a-z0-9_]+)?(?:\s+([\s\S]*))?$/i.exec(value);
   if (slash) return { name: slash[1].toLowerCase(), argument: (slash[2] || "").trim() };
-  const alias = /^(finish\s+issue|help|id|cancel)(?:\s+([\s\S]*))?$/i.exec(value);
-  if (alias) return { name: alias[1].toLowerCase().replace(/\s+/g, ""), argument: (alias[2] || "").trim() };
+  const alias = /^(finish\s+issue|help|id|cancel)$/i.exec(value);
+  if (alias) return { name: alias[1].toLowerCase().replace(/\s+/g, ""), argument: "" };
 }
 
 function status(task?: TelegramTask) {

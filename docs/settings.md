@@ -64,7 +64,7 @@ PRBOT 原创图形：深绿圆角方形、浅色终端提示符和绿色分支�
 
 ## Telegram 和 Infisical
 
-在 Infisical Cloud 的项目根目录、所选环境中准备 `TELEGRAM_BOT_TOKEN`、`UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN`，为 Machine Identity 启用 Universal Auth。设置页分为“工作空间”“Codex 运行设置”“Telegram”“Infisical”四类；填写 Project ID、Client ID、Client Secret、环境名，以及允许的 Telegram 数字用户 ID（多个用逗号分开）后启用。只接收白名单用户的私聊消息和按钮。
+在 Infisical Cloud 的项目根目录、所选环境中准备 `PR_BOT_TOKEN`（兼容旧名 `TELEGRAM_BOT_TOKEN`）、`UPSTASH_REDIS_REST_URL` 和 `UPSTASH_REDIS_REST_TOKEN`，为 Machine Identity 启用 Universal Auth。设置页分为“工作空间”“Codex 运行设置”“Telegram”“Infisical”四类；填写 Project ID、Client ID、Client Secret、环境名，以及允许的 Telegram 数字用户 ID（多个用逗号分开）后启用。只接收白名单用户的私聊消息和按钮。
 
 Client Secret 保存在本机数据目录的 `telegram-settings.json`，不返回设置页面；文件使用仅当前用户可读写的权限。Telegram 和 Upstash 密钥从 Infisical 读取，约每分钟刷新，不写进本机设置。当前支持 Infisical Cloud 项目根目录。GitHub Issue 的读取、权限检查和 PR 创建复用运行主机现有 Codex GitHub 插件，必须在同一 Codex 配置中启用并授权该插件；不需要另外配置 GitHub API Token。Git commit/push 仍使用本机现有 Git 身份和推送凭据。
 

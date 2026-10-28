@@ -4,10 +4,15 @@ on:
     branches: [main, 'feature/**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      live_services:
+        description: 'Use organization Infisical credentials for Telegram getMe and isolated Redis checks'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: verify-${{ github.head_ref || github.ref_name }}
+  group: verify-${{ github.head_ref || github.ref_name }}-${{ (github.event_name == 'workflow_dispatch' && inputs.live_services) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-services]')) }}
   cancel-in-progress: true
 jobs:
   verify:
@@ -60,3 +65,26 @@ jobs:
             test-results/
             playwright-report/
           retention-days: 14
+
+  live-services:
+    name: Live Telegram and Upstash via Infisical
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.live_services) ||
+      (github.event_name == 'push' && contains(github.event.head_commit.message, '[live-services]'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PRBOT_LIVE_SERVICES: '1'
+      INFISICAL_CLIENT_ID: ${{ secrets.INFISICAL_CLIENT_ID }}
+      INFISICAL_CLIENT_SECRET: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+      INFISICAL_PROJECT_ID: ${{ secrets.INFISICAL_PROJECT_ID }}
+      INFISICAL_ENVIRONMENT: ${{ secrets.INFISICAL_ENVIRONMENT }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Check existing services without messages or paid models
+        run: npm test -- tests/telegram-live.test.ts

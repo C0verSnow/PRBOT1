@@ -169,10 +169,39 @@ describe("reviewed Git publication", () => {
   });
   it("reuses an existing PR after an uncertain response instead of creating another one", async () => {
     existing = [{ html_url: "https://github.com/Owner/project/pull/15" }];
+    await writeFile(path.join(workspace, "published.txt"), "already delivered\n");
+    await git(workspace, ["add", "--all"]); await git(workspace, ["commit", "-m", "Already delivered"]);
+    await git(workspace, ["push", remote, branch]);
     const snapshot = await reviewSnapshot(workspace, branch);
     const stages = vi.fn();
     expect(await publishIssue(workspace, issue(), branch, snapshot.fingerprint, stages)).toBe(existing[0].html_url);
     expect(stages).not.toHaveBeenCalled(); expect(calls.some(call => call.operation === "create_pr")).toBe(false);
+  });
+  it("commits and pushes incremental changes before reusing an existing review PR", async () => {
+    existing = [{ html_url: "https://github.com/Owner/project/pull/15" }];
+    await writeFile(path.join(workspace, "review-followup.txt"), "requested in review\n");
+    const snapshot = await reviewSnapshot(workspace, branch); const stages: string[] = [];
+    expect(await publishIssue(workspace, issue(), branch, snapshot.fingerprint, async value => { stages.push(value); })).toBe(existing[0].html_url);
+    expect(stages).toEqual(["committing", "pushing"]);
+    expect(await git(remote, ["rev-parse", `refs/heads/${branch}`])).toBe(await git(workspace, ["rev-parse", "HEAD"]));
+    expect(await git(remote, ["show", `refs/heads/${branch}:review-followup.txt`])).toBe("requested in review");
+    expect(calls.some(call => call.operation === "create_pr")).toBe(false);
+  });
+  it("pushes an already committed review update when retrying a failed push", async () => {
+    existing = [{ html_url: "https://github.com/Owner/project/pull/15" }];
+    await git(workspace, ["push", remote, branch]);
+    const remoteBefore = await git(remote, ["rev-parse", `refs/heads/${branch}`]);
+    await writeFile(path.join(workspace, "retry-followup.txt"), "commit survived a failed push\n");
+    const snapshot = await reviewSnapshot(workspace, branch);
+    await expect(publishIssue(workspace, issue(), branch, snapshot.fingerprint, async stage => {
+      if (stage === "pushing") throw new Error("push interrupted");
+    })).rejects.toThrow("push interrupted");
+    expect((await reviewSnapshot(workspace, branch)).hasChanges).toBe(false);
+    expect(await git(remote, ["rev-parse", `refs/heads/${branch}`])).toBe(remoteBefore);
+    const retry = await reviewSnapshot(workspace, branch);
+    expect(await publishIssue(workspace, issue(), branch, retry.fingerprint, async () => {})).toBe(existing[0].html_url);
+    expect(await git(remote, ["rev-parse", `refs/heads/${branch}`])).toBe(await git(workspace, ["rev-parse", "HEAD"]));
+    expect(calls.some(call => call.operation === "create_pr")).toBe(false);
   });
   it("rechecks the push URL after committing and preserves the local commit if it was redirected", async () => {
     await writeFile(path.join(workspace, "feature.txt"), "reviewed\n");

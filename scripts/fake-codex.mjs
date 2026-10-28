@@ -33,10 +33,22 @@ emit({ type: "turn.started" });
 if (prompt.includes("PRBOT_GITHUB_PLUGIN_")) {
   const created = prompt.includes("PRBOT_GITHUB_PLUGIN_PR_CREATE");
   const inspected = prompt.includes("PRBOT_GITHUB_PLUGIN_INSPECT");
-  const data = inspected
-    ? { title: "Fixture Issue", context: "Read through the configured GitHub plugin fixture", defaultBranch: "main", canRead: true, canWrite: true, isOpen: true, isPullRequest: false }
-    : { repository: "Owner/project", head: "feature/fixture", base: "main", found: created, prUrl: created ? "https://github.com/Owner/project/pull/15" : null };
-  emit({ type: "item.completed", item: { id: "plugin", type: "mcp_tool_call", server: "github", tool: created ? "create_pull_request" : inspected ? "fetch_issue" : "search_prs", arguments: {}, status: "completed", result: { content: [] } } });
+  const metadataLine = prompt.split("\n").find(line => inspected ? line.startsWith("只读检查：{") : line.startsWith("{"));
+  const metadata = JSON.parse(inspected ? metadataLine.slice("只读检查：".length) : metadataLine);
+  const repository = inspected ? `${metadata.owner}/${metadata.repo}` : metadata.repository;
+  const call = (id, tool, parameters, result) => emit({ type: "item.completed", item: { id, type: "mcp_tool_call", server: "github", tool, arguments: parameters, status: "completed", result: { content: [], structured_content: result } } });
+  let data;
+  if (inspected) {
+    const body = "Read through the configured GitHub plugin fixture";
+    call("issue-plugin", "fetch_issue", { repository_full_name: repository, issue_number: metadata.issueNumber }, { issue: { url: metadata.issueUrl, issue_number: metadata.issueNumber, title: "Fixture Issue", body, state: "open" } });
+    call("repo-plugin", "get_repo", { repository_full_name: repository }, { repository_full_name: repository, name: metadata.repo, owner: { login: metadata.owner }, default_branch: "main", permissions: { push: true, pull: true } });
+    data = { title: "Fixture Issue", context: body, defaultBranch: "main", canRead: true, canWrite: true, isOpen: true, isPullRequest: false };
+  } else {
+    const prUrl = `https://github.com/${repository}/pull/15`;
+    call("lookup-plugin", "search_prs", { repository_full_name: repository, query: `head:${metadata.head} base:${metadata.base}`, state: "open" }, { issues: [] });
+    if (created) call("create-plugin", "create_pull_request", { repository_full_name: repository, head: metadata.head, base: metadata.base }, { url: prUrl, head: metadata.head, base: metadata.base, state: "open", head_repo_full_name: repository });
+    data = { repository, head: metadata.head, base: metadata.base, found: created, prUrl: created ? prUrl : null };
+  }
   emit({ type: "item.completed", item: { id: "result", type: "agent_message", text: JSON.stringify(data) } });
   emit({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 20 } });
   process.exit(0);

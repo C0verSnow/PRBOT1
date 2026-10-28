@@ -130,14 +130,20 @@ export async function publishIssue(workspace: string, issue: TelegramIssue, bran
   if (snapshot.fingerprint !== fingerprint) throw new Error("确认之后文件又变了，请重新检查改动并确认发布");
   // A failed POST can have succeeded on GitHub: query by head before retrying.
   const existing = await pluginEnsurePullRequest(workspace, issue, branch, issue.baseBranch!, false, signal);
-  if (existing) return existing;
+  if (existing && !snapshot.hasChanges) {
+    const pushUrl = await checkedRemotes(workspace, issue);
+    const published = await git(workspace, ["ls-remote", pushUrl, `refs/heads/${branch}`], signal);
+    const head = await git(workspace, ["rev-parse", "HEAD"], signal);
+    // A clean tree can still contain a local commit from an interrupted push.
+    if (published.split(/\s+/)[0] === head) return existing;
+  }
   signal?.throwIfAborted();
   await stage("committing");
   // Access checks and PR lookup may take time; require the same reviewed files at staging.
   if ((await reviewSnapshot(workspace, branch)).fingerprint !== fingerprint) throw new Error("确认之后文件又变了，请重新检查改动并确认发布");
   if (snapshot.hasChanges) {
-    await git(workspace, ["add", "--all"]);
-    await git(workspace, ["commit", "-m", `Implement issue #${issue.number} via PRBOT`]);
+    await git(workspace, ["add", "--all"], signal);
+    await git(workspace, ["commit", "-m", `Implement issue #${issue.number} via PRBOT`], signal);
   }
   if (!await git(workspace, ["log", `origin/${issue.baseBranch}..HEAD`, "--oneline"])) throw new Error("没有可交付的提交，无法创建 PR");
   await stage("pushing");
@@ -145,7 +151,8 @@ export async function publishIssue(workspace: string, issue: TelegramIssue, bran
   if (await git(workspace, ["branch", "--show-current"]) !== branch) throw new Error("当前分支已变化，请在本机检查后再继续");
   const pushUrl = await checkedRemotes(workspace, issue);
   // Bind the push to the checked URL; a concurrent origin edit cannot redirect it.
-  await git(workspace, ["push", "--set-upstream", pushUrl, branch]);
+  await git(workspace, ["push", "--set-upstream", pushUrl, branch], signal);
+  if (existing) return existing;
   await stage("creating_pr");
   signal?.throwIfAborted();
   const url = await pluginEnsurePullRequest(workspace, issue, branch, issue.baseBranch!, true, signal);

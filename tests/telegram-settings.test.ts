@@ -28,7 +28,7 @@ describe("Telegram settings", () => {
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       const address = String(url);
       if (address.includes("universal-auth/login")) return Response.json({ accessToken: "access" });
-      if (address.includes("TELEGRAM_BOT_TOKEN")) return Response.json({ secret: { secretValue: "123:token" } });
+      if (address.includes("PR_BOT_TOKEN")) return Response.json({ secret: { secretValue: "123:token" } });
       if (address.includes("UPSTASH_REDIS_REST_URL")) return Response.json({ secret: { secretValue: "https://example.upstash.io" } });
       return Response.json({ secret: { secretValue: "redis-secret" } });
     });
@@ -36,4 +36,18 @@ describe("Telegram settings", () => {
     const result = await telegramCredentials(input);
     expect(result.botToken).toBe("123:token"); expect(result.url).toBe("https://example.upstash.io/"); expect(fetcher).toHaveBeenCalledTimes(4);
   });
+  it("keeps the legacy token name only as a 404 fallback", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const address = String(url);
+      if (address.includes("universal-auth/login")) return Response.json({ accessToken: "access" });
+      if (address.includes("/PR_BOT_TOKEN?")) return new Response(null, { status: 404 });
+      if (address.includes("TELEGRAM_BOT_TOKEN")) return Response.json({ secret: { secretValue: "123:token" } });
+      if (address.includes("UPSTASH_REDIS_REST_URL")) return Response.json({ secret: { secretValue: "https://example.upstash.io" } });
+      return Response.json({ secret: { secretValue: "redis-secret" } });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    expect((await telegramCredentials(input)).botToken).toBe("123:token");
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  });
+
 });

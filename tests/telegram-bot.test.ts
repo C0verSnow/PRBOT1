@@ -48,6 +48,8 @@ describe("Telegram command intake", () => {
     expect(parseTelegramCommand("finish issue")).toEqual({ name: "finishissue", argument: "" });
     expect(parseTelegramCommand("HELP")).toEqual({ name: "help", argument: "" });
     expect(parseTelegramCommand("请继续修改帮助文档")).toBeUndefined();
+    expect(parseTelegramCommand("help me debug this issue")).toBeUndefined();
+    expect(parseTelegramCommand("cancel the subscription UI change")).toBeUndefined();
   });
   it("ignores unauthorized, group, bot and disabled-setting messages before dedupe", async () => {
     await receive(update(1, 999, "hello"));
