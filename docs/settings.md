@@ -68,11 +68,11 @@ PRBOT 原创图形：深绿圆角方形、浅色终端提示符和绿色分支�
 
 Client Secret 保存在本机数据目录的 `telegram-settings.json`，不返回设置页面；文件使用仅当前用户可读写的权限。Telegram 和 Upstash 密钥从 Infisical 读取，约每分钟刷新，不写进本机设置。当前支持 Infisical Cloud 项目根目录。GitHub Issue 的读取、权限检查和 PR 创建复用运行主机现有 Codex GitHub 插件，必须在同一 Codex 配置中启用并授权该插件；不需要另外配置 GitHub API Token。Git commit/push 仍使用本机现有 Git 身份和推送凭据。
 
-默认长轮询，执行任务不会占住收消息循环。所有指令、同 Thread 多轮回复、待处理消息、日志分页、确认、取消和恢复见 [Issue #14 使用与部署说明](issue-14.md)。`PRBOT_TELEGRAM_TRANSPORT=webhook` 时需要额外设置启动环境中的 Webhook Secret，并在 Telegram 注册专用 HTTPS 地址；仍然需要常驻 Node 进程，不能把该入口部署成无状态函数。
+默认长轮询，执行任务不会占住收消息循环。所有指令、同 Thread 多轮回复、待处理消息、日志分页、取消和恢复见 [Issue #14 使用与部署说明](issue-14.md)。`PRBOT_TELEGRAM_TRANSPORT=webhook` 时需要额外设置启动环境中的 Webhook Secret，并在 Telegram 注册专用 HTTPS 地址；仍然需要常驻 Node 进程，不能把该入口部署成无状态函数。
 
 本机任务和会话元数据保存在 `PRBOT_DATA_DIR/telegram/<数字Bot ID>/`，Redis 保存缓存、日志流、去重键和工作空间租约。本机 JSON、项目 Git 文件和 Codex 自身的会话目录必须一起保留；Redis 不能代替这些文件。日志预算按每个 Bot 的正文与估算元数据计 50 MiB，缓存过期和淘汰规则见上述说明。新流程不会自动迁移旧版 Redis 记录的 Thread 映射。
 
-Telegram 的 SDK 执行使用 `workspace-write`，禁用沙箱命令联网；插件的网络和访问范围沿用已连接插件的权限。Telegram 与网页共用当前配置的 `CODEX_HOME`、登录和插件，不额外建立隔离目录，也不把聊天侧已连接插件视为 SDK 主机必然可用。缺少 GitHub 插件或授权时明确报错。开始执行和提交/推送/创建 PR 分别确认，这是应用阶段确认，不是原生逐工具审批；本机网页和桌面的完全访问设置维持现有行为。无法确认旧子进程已经停止时会锁住工作空间，需要本机检查后 `/continue` 明确确认。任务执行期间不能改设置。
+Telegram 与网页、桌面统一使用 `danger-full-access`、`approvalPolicy: never`、`skipGitRepoCheck: true`，命令可联网；普通消息直接自然对话，操作与提交/推送/PR 不再重复确认。GitHub 元数据检查单独使用只读线程。插件的网络和访问范围沿用已连接插件的权限。Telegram 与网页共用当前配置的 `CODEX_HOME`、登录和插件，不额外建立隔离目录，也不把聊天侧已连接插件视为 SDK 主机必然可用。缺少 GitHub 插件或授权时明确报错。明确退出的启动错误不再误锁工作空间；真正无法确定遗留子进程是否停止时，需要在本机检查后发送 `/continue 已在本机确认停止`。任务执行期间不能改设置。详见 [Issue #17 修复说明](issue-17.md)。
 
 ### GitHub 方案比较
 

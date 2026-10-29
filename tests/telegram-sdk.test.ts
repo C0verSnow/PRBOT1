@@ -13,19 +13,19 @@ beforeEach(async () => {
 });
 afterEach(async () => { vi.unstubAllEnvs(); await rm(directory, { recursive: true, force: true }); });
 describe("Telegram through the actual SDK subprocess transport (remote CI fixture)", () => {
-  it("uses the remote sandbox/network policy, emits events, writes a file and resumes its thread", async () => {
+  it("uses full access, no approval and skip-git-check policy, emits events, writes a file and resumes its thread", async () => {
     const thread = await openThread(undefined, { workspace: directory });
     const first = await thread.run("写入测试文件");
-    expect(JSON.parse(first.finalResponse)).toMatchObject({ status: "completed", summary: "远程任务已处理" });
+    expect(first.finalResponse).toContain("你好");
     expect(await readFile(path.join(directory, "sdk-evidence.txt"), "utf8")).toContain("written through SDK subprocess");
     expect(first.items.some(item => item.type === "command_execution")).toBe(true);
     expect(thread.id).toBeTruthy();
     const resumed = await openThread(thread.id!, { workspace: directory });
     const next = await resumed.run("继续原来的任务");
     expect(resumed.id).toBe(thread.id);
-    expect(JSON.parse(next.finalResponse).summary).toBe("远程原线程已继续");
+    expect(next.finalResponse).toContain("接着上次对话");
   });
-  it("uses the same configured SDK for GitHub plugin inspection and confirmed PR delivery", async () => {
+  it("uses the same configured SDK for GitHub plugin inspection and automatic PR delivery", async () => {
     const issue = { owner: "Owner", repo: "project", number: 14, url: "https://github.com/Owner/project/issues/14" };
     const details = await pluginInspectIssue(directory, issue);
     expect(details.canWrite).toBe(true); expect(details.context).toContain("GitHub plugin fixture");

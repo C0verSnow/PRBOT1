@@ -29,11 +29,6 @@ async function waitForTask(status: TelegramTask["status"]) {
   await vi.waitFor(async () => expect((await current())?.status).toBe(status), { timeout: 10_000 });
   return (await current())!;
 }
-async function confirm(id: number) {
-  const task = (await current())!;
-  expect(task.question?.highRisk).toBe(true);
-  await receive(update(id, `/confirm ${task.question!.id}`));
-}
 function cleanRedis() {
   const keys = redis("KEYS", "prbot:telegram:{99991}:*") as string[];
   if (directory) keys.push(`prbot:telegram:workspace:${createHash("sha256").update(directory).digest("hex")}`);
@@ -67,21 +62,23 @@ describe.skipIf(process.env.PRBOT_TEST_REDIS !== "1")("Telegram → worker → S
     await rm(directory, { recursive: true, force: true });
   });
 
-  it("authorizes and deduplicates intake, confirms execution, reports logs and resumes the same thread", async () => {
+  it("authorizes and deduplicates intake, answers directly, reports logs and resumes the same thread", async () => {
     await receive(update(1, "写入测试文件", 999));
     expect(await current()).toBeUndefined(); expect(sent).toHaveLength(0);
     await receive(update(2, "/START"));
     expect(sent.some(message => String(message.body.text).includes("欢迎使用 PRBOT"))).toBe(true);
 
     const original = update(3, "写入测试文件");
-    await receive(original); const requested = await waitForTask("waiting_input");
-    expect(requested.stage).toBe("confirm_execution");
+    await receive(original);
     await receive(original); expect((await store.listTasks("123", "123", directory))).toHaveLength(1);
-    await confirm(4); const first = await waitForTask("completed");
+    const first = await waitForTask("completed");
     expect(await readFile(path.join(directory, "sdk-evidence.txt"), "utf8")).toContain("written through SDK subprocess");
     expect(first.threadId).toBeTruthy();
+    const texts = sent.map(message => String(message.body.text));
+    expect(texts.findIndex(text => text.includes("消息已收到"))).toBeLessThan(texts.findIndex(text => text.includes("开始执行")));
+    expect(texts.join("\n")).not.toMatch(/允许 Codex|等待执行确认|已隐藏密钥.*confirm/);
     expect((await store.loadSession("123", "123", directory)).threadId).toBe(first.threadId);
-    await vi.waitFor(() => expect(sent.some(message => String(message.body.text).includes("远程任务已处理"))).toBe(true));
+    await vi.waitFor(() => expect(sent.some(message => String(message.body.text).includes("你好！我已连接"))).toBe(true));
 
     await receive(update(5, "/status"));
     await receive(update(6, "/logs"));
@@ -92,9 +89,17 @@ describe.skipIf(process.env.PRBOT_TEST_REDIS !== "1")("Telegram → worker → S
     const rest = await store.events(first.id, logs.nextCursor, 50); expect(rest.events).toHaveLength(0);
 
     await receive(update(7, "继续原来的任务"));
-    await waitForTask("waiting_input"); await confirm(8); const second = await waitForTask("completed");
+    const second = await waitForTask("completed");
     expect(second.id).not.toBe(first.id); expect(second.threadId).toBe(first.threadId);
-    await vi.waitFor(() => expect(sent.some(message => String(message.body.text).includes("远程原线程已继续"))).toBe(true), { timeout: 10_000 });
+    await vi.waitFor(() => expect(sent.some(message => String(message.body.text).includes("接着上次对话"))).toBe(true), { timeout: 10_000 });
     expect(await store.listTasks("123", "123", directory)).toHaveLength(2);
+
+    await receive(update(9, "模拟启动退出")); const failed = await waitForTask("failed");
+    expect(failed.error).toContain("Codex Exec exited with code 1");
+    expect(failed.requiresStopCheck).toBe(false); expect(failed.stage).toBe("failed");
+    await receive(update(10, "啥意思？")); const explained = await waitForTask("completed");
+    expect(explained.threadId).toBe(first.threadId);
+    await receive(update(11, "/new"));
+    expect(sent.some(message => String(message.body.text).includes("已开启新 Codex 会话"))).toBe(true);
   }, 30_000);
 });

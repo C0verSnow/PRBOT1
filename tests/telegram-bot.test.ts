@@ -99,11 +99,11 @@ describe("Telegram command intake", () => {
     await receive(update(1, 123, "/status"));
     expect(requests[0].body.text).not.toContain("private detail"); expect(requests[0].body.text).toContain("当前没有任务");
   });
-  it("acknowledges webhook intake without waiting for Telegram sends", async () => {
+  it("acknowledges webhook intake while retaining ordered Telegram sends", async () => {
     let finish: (() => void) | undefined;
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(resolve => { finish = () => resolve(Response.json({ ok: true, result: {} })); })));
     await receive(update(1, 123, "task"), { waitForReply: false });
-    expect(mocks.dispatch).toHaveBeenCalledOnce(); expect(finish).toBeDefined(); finish!();
+    await vi.waitFor(() => expect(finish).toBeDefined()); expect(mocks.dispatch).toHaveBeenCalledOnce(); finish!();
   });
   it("explains rejected Issue input and redacts exception messages", async () => {
     mocks.dispatch.mockRejectedValue(new Error("Issue 链接无效 codex-private-key-abcdefghijkl"));
@@ -122,6 +122,21 @@ describe("Telegram command intake", () => {
 });
 
 describe("Telegram output bounds", () => {
+  it("keeps chunks and multiple producers in FIFO order while another chat can send", async () => {
+    let finishFirst: (() => void) | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, options: RequestInit) => {
+      const body = JSON.parse(String(options.body)); requests.push({ url, body });
+      if (body.text === "A".repeat(4000)) await new Promise<void>(resolve => { finishFirst = resolve; });
+      return Response.json({ ok: true, result: {} });
+    }));
+    const first = telegramSend(credentials, "fifo", "A".repeat(4001));
+    await vi.waitFor(() => expect(finishFirst).toBeDefined());
+    const next = telegramSend(credentials, "fifo", "worker progress");
+    await telegramSend(credentials, "other-chat", "independent");
+    expect(requests.map(request => request.body.text)).toEqual(["A".repeat(4000), "independent"]);
+    finishFirst!(); await Promise.all([first, next]);
+    expect(requests.filter(request => request.body.chat_id === "fifo").map(request => request.body.text)).toEqual(["A".repeat(4000), "A", "worker progress"]);
+  });
   it("keeps emoji messages within Telegram's UTF-16 limit without broken pairs", async () => {
     const text = "😀".repeat(5000); const chunks = telegramChunks(text);
     expect(chunks.every(chunk => chunk.length <= 4000)).toBe(true); expect(chunks.join("")).toBe(text);

@@ -46,14 +46,14 @@ const help = [
   "/start  检查连接与当前工作空间",
   "/help  查看帮助",
   "/id  查看你的 Telegram ID",
-  "/FinishIssue  输入 GitHub Issue 链接并确认任务",
+  "/FinishIssue  输入 GitHub Issue 链接并直接执行",
   "/status  查看当前任务与待回复问题",
   "/logs [游标]  分页查看执行日志；按回复中的游标接着看",
   "/tasks  查看当前工作空间最近的任务",
   "/cancel  退出当前交互或请求停止任务",
   "/continue  检查并继续此前任务或对话",
   "/new  开启新的 Codex 会话",
-  "/confirm 问题编号  确认当前问题（也可点击按钮）",
+  "已授权用户使用完全访问权限，执行和 PR 交付不再重复确认。",
   "直接发送文字即可继续对话；执行中的补充要求会排队进入同一任务。",
 ].join("\n");
 
@@ -73,7 +73,7 @@ function status(task?: TelegramTask) {
     task.branch && `分支：${task.branch}`, task.prUrl && `PR：${task.prUrl}`,
     task.question && `等待回复：${task.question.text}\n问题编号：${task.question.id}${task.question.highRisk ? `\n请点击确认按钮或发送 /confirm ${task.question.id}；/cancel 取消。` : "\n直接回复即可继续。"}`,
     task.error && `提示：${task.error}`,
-    ["failed", "interrupted", "cancelled"].includes(task.status) && "使用 /continue 检查后继续；已完成的文件操作不会自动撤销。",
+    ["failed", "interrupted", "cancelled"].includes(task.status) && "可直接发消息询问原因，或 /continue 续接、/new 新建。已完成的文件操作不会自动撤销。",
   ].filter(Boolean).join("\n");
 }
 
@@ -114,7 +114,7 @@ export async function handleTelegramUpdate(update: TelegramUpdate, credentials: 
     if (!await storage.claimUpdate(update.update_id)) return;
     const send = async (text: string) => telegramSend(credentials, chatId, redactTelegram(text, secrets));
     const reply = (text: string) => {
-      const sent = send(text);
+      const sent = send(text); // Enqueue before the worker; FIFO also covers webhook replies.
       if (options.waitForReply === false) { void sent.catch(() => {}); return Promise.resolve(); }
       return sent;
     };
@@ -153,12 +153,13 @@ export async function handleTelegramUpdate(update: TelegramUpdate, credentials: 
       const action = command && actions.find(item => item === command.name);
       if (command && !action) { await reply("没有这个指令。输入 /help 查看支持的指令。"); return; }
       if (action === "confirm" && !/^[A-Za-z0-9_-]{1,100}$/.test(command!.argument)) { await reply("请使用 /confirm 问题编号，或点击当前问题的确认按钮。"); return; }
+      let replied = false;
       const answer = await dispatchTelegram({
         text: action ? command!.argument : message.text!, userId, chatId, workspace: config.workspace,
-        credentials, settingsKey, action: action || "message",
+        credentials, settingsKey, action: action || "message", reply: async text => { replied = true; await reply(text); },
         ...(selected || action === "confirm" ? { questionId: command!.argument } : {}),
       });
-      await reply(answer);
+      if (!replied) await reply(answer);
     } catch (error) {
       const detail = redactTelegram(error instanceof Error ? error.message : "未知错误", secrets).slice(0, 1200);
       await reply(`本次操作未完成：${detail}\n请用 /status 检查任务；如果没有创建任务，请重新发送。已完成的文件操作不会自动撤销。`).catch(() => {});

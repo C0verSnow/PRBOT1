@@ -26,7 +26,7 @@ export function telegramChunks(text: string, limit = 4000) {
   return chunks;
 }
 
-export async function telegramSend(credentials: RedisCredentials, chatId: string, text: string, buttons: TelegramButton[] = []) {
+async function sendMessages(credentials: RedisCredentials, chatId: string, text: string, buttons: TelegramButton[] = []) {
   const secrets = [credentials.botToken, credentials.token, ...secretsFromEnv(process.env)];
   const chunks = telegramChunks(redactTelegram(text, secrets));
   const keyboard = buttons.slice(0, 8).map(button => {
@@ -39,4 +39,16 @@ export async function telegramSend(credentials: RedisCredentials, chatId: string
       ...(keyboard.length && index === chunks.length - 1 ? { reply_markup: { inline_keyboard: [keyboard] } } : {}),
     });
   }
+}
+
+// One FIFO per bot/chat, including acknowledgement, questions and worker progress.
+// Inspired by grammY's sequential chat processing; no new framework dependency.
+const outboundState = globalThis as typeof globalThis & { prbotTelegramOutbound?: Map<string, Promise<void>> };
+const outbound = outboundState.prbotTelegramOutbound ??= new Map();
+export async function telegramSend(credentials: RedisCredentials, chatId: string, text: string, buttons: TelegramButton[] = []) {
+  const key = `${credentials.botToken.split(":")[0]}:${chatId}`;
+  const previous = outbound.get(key) || Promise.resolve();
+  const next = previous.catch(() => {}).then(() => sendMessages(credentials, chatId, text, buttons));
+  outbound.set(key, next);
+  try { await next; } finally { if (outbound.get(key) === next) outbound.delete(key); }
 }
