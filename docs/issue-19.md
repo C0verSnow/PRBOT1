@@ -45,3 +45,11 @@
 ## 打包回归
 
 首次远端交付发现 Next 文件追踪把应用自身的 `.git` 对象带入 standalone，macOS codesign 在只读 pack idx 文件上报 Permission denied。按 [Next.js 官方 output 文档](https://github.com/vercel/next.js/blob/canary/docs/01-app/03-api-reference/05-config/01-next-config-js/output.mdx) 的 outputFileTracingExcludes 排除构建仓库 `.git`，打包阶段再过滤并检查 Git 元数据，防止桌面产物混入仓库历史。目标运行仓库的 `.git` 检查保持正常。这个修正同样由远端构建和安装产物验证，不做本地构建。
+
+## 最终验收结果
+
+代码提交 `d688410` 已通过 [远端核心 CI](https://github.com/C0verSnow/PRBOT1/actions/runs/40854815941)：类型检查、150 项测试、构建和 26 项浏览器检查；1 项真实服务测试未启用。完整 Issue 恢复回归已通过，真实网络由隔离夹具替代。
+
+[远端交付 CI](https://github.com/C0verSnow/PRBOT1/actions/runs/40854815965) 全部通过：Windows x64、macOS arm64、Linux x64 安装包及安装启动检查，Docker 镜像与真实容器回归。macOS 的 `.git` 签名问题已修复并重新验证。
+
+[PR #20](https://github.com/C0verSnow/PRBOT1/pull/20) 保持开放等待用户 Review，未合并；按正文要求已关闭本次开发任务 #19。最后的验收记录提交只修改 Markdown，使用 `[skip ci]`，不重复构建相同代码。本地没有进行编译验证。
