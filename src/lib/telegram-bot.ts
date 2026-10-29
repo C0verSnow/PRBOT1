@@ -70,6 +70,7 @@ function status(task?: TelegramTask) {
   return [
     `任务：${task.id}`, `状态：${task.status}`, task.stage && `进度：${task.stage}`,
     task.threadId && `Codex 会话：${task.threadId}`, task.issue && `Issue：${task.issue.url}`,
+    task.repositoryPath && `仓库目录：${task.repositoryPath}`, task.failedStage && task.status === "failed" && `失败步骤：${task.failedStage}`,
     task.branch && `分支：${task.branch}`, task.prUrl && `PR：${task.prUrl}`,
     task.question && `等待回复：${task.question.text}\n问题编号：${task.question.id}${task.question.highRisk ? `\n请点击确认按钮或发送 /confirm ${task.question.id}；/cancel 取消。` : "\n直接回复即可继续。"}`,
     task.error && `提示：${task.error}`,

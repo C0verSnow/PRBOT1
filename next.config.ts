@@ -3,6 +3,8 @@ const config: NextConfig = {
   output: "standalone",
   // Codex resolves its platform package dynamically; NFT cannot infer these paths.
   outputFileTracingIncludes: { "/*": ["./node_modules/@openai/codex*/**/*"] },
+  // Runtime workspace .git checks must not trace this application's Git history.
+  outputFileTracingExcludes: { "/*": ["./.git", "./.git/**/*"] },
   serverExternalPackages: ["@openai/codex-sdk"],
   poweredByHeader: false,
   async headers() {

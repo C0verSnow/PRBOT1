@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { lstat, readFile, readlink, realpath } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, readlink, realpath, rmdir } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { TelegramIssue } from "./telegram-task-store";
@@ -12,10 +12,19 @@ export async function git(workspace: string, args: string[], signal?: AbortSigna
   return raw ? stdout : stdout.trim();
 }
 export function parseIssueLink(text: string): TelegramIssue {
+  // Deduplicate the label and destination in (even nested) Markdown links.
+  // Consume the whole URL token so malformed paths cannot become valid prefixes.
+  const candidates = text.trim().match(/https?:\/\/[^\s<>\[\]()]+/gi) || [];
+  if (!candidates.length) throw new Error("请发送完整的 GitHub Issue 链接，例如 https://github.com/owner/repo/issues/14");
+  const issues = candidates.map(candidate => parseIssueURL(candidate));
+  if (new Set(issues.map(issue => issue.url.toLowerCase())).size !== 1) throw new Error("一次只能发送一个 GitHub Issue 链接，请说明要完成哪一个");
+  return issues[0];
+}
+function parseIssueURL(text: string): TelegramIssue {
   let url: URL;
   try { url = new URL(text.trim()); } catch { throw new Error("请发送完整的 GitHub Issue 链接，例如 https://github.com/owner/repo/issues/14"); }
   const match = /^\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/issues\/([1-9]\d*)\/?$/.exec(url.pathname);
-  if (url.protocol !== "https:" || url.hostname !== "github.com" || url.port || url.username || url.password || !match || !Number.isSafeInteger(Number(match[3]))) throw new Error("只支持 github.com 上带具体编号的 HTTPS Issue 链接");
+  if (url.protocol !== "https:" || url.hostname !== "github.com" || url.port || url.username || url.password || !match || [match[1], match[2]].some(part => part === "." || part === "..") || !Number.isSafeInteger(Number(match[3]))) throw new Error("只支持 github.com 上带具体编号的 HTTPS Issue 链接");
   const [, owner, repo, number] = match;
   return { owner, repo, number: Number(number), url: `https://github.com/${owner}/${repo}/issues/${number}` };
 }
@@ -34,6 +43,54 @@ async function checkedRemotes(workspace: string, issue: TelegramIssue) {
   if (pushes.length !== 1) throw new Error("origin 配置了多个推送地址，请先在本机保留一个明确的 GitHub 推送地址");
   return pushes[0];
 }
+async function entry(location: string) {
+  try { return await lstat(location); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+}
+async function repositoryRoot(workspace: string, issue: TelegramIssue, signal?: AbortSignal) {
+  // Checking .git alone is insufficient: it can be a broken directory or a worktree file.
+  const top = await git(workspace, ["rev-parse", "--show-toplevel"], signal);
+  if (await realpath(top) !== await realpath(workspace)) throw new Error("目标目录不是独立的 Git 仓库，请检查 .git；不会使用上层仓库");
+  await checkedRemotes(workspace, issue);
+}
+/** Borrowed lifecycle design: cli/cli repo clone + actions/checkout; see docs/issue-19.md. */
+export async function ensureIssueRepository(workspace: string, issue: TelegramIssue, signal?: AbortSignal, options: { repositoryPath?: string; requireExisting?: boolean; beforePrepare?: (target: string) => Promise<void> } = {}) {
+  signal?.throwIfAborted();
+  const root = await realpath(workspace);
+  // Canonical parsing also excludes path traversal when loading a persisted task.
+  const identity = parseIssueLink(issue.url);
+  if (`${identity.owner}/${identity.repo}`.toLowerCase() !== `${issue.owner}/${issue.repo}`.toLowerCase() || identity.number !== issue.number) throw new Error("任务的 Issue 信息不一致，请检查后重试");
+  const target = options.repositoryPath || (await entry(path.join(root, ".git")) ? root : path.join(root, identity.owner, identity.repo));
+  const child = path.join(root, identity.owner, identity.repo);
+  if (target !== root && target !== child) throw new Error("保存的仓库目录不属于这个任务，请在本机检查");
+  await options.beforePrepare?.(target);
+  if (target !== root) {
+    const ownerPath = path.dirname(target);
+    if (!await entry(ownerPath)) await mkdir(ownerPath).catch(error => { if (error.code !== "EEXIST") throw error; });
+    const owner = await entry(ownerPath);
+    if (!owner?.isDirectory() || owner.isSymbolicLink() || await realpath(ownerPath) !== ownerPath) throw new Error("目标仓库的上层目录不安全，请检查目录或符号链接");
+  }
+  const info = await entry(target);
+  if (info && (!info.isDirectory() || info.isSymbolicLink())) throw new Error("目标仓库路径被文件或符号链接占用，Bot 不会覆盖");
+  if (await entry(path.join(target, ".git"))) {
+    await repositoryRoot(target, issue, signal);
+    return target;
+  }
+  if (options.requireExisting) throw new Error("原任务的 Git 仓库已缺失，请恢复原目录；Bot 不会重新克隆并重做已执行的操作");
+  if (info && (await readdir(target)).length) throw new Error("目标目录不是 Git 仓库且已有文件，Bot 不会覆盖或执行 git init，请先在本机处理");
+  if (!info) await mkdir(target); // Exclusive claim; never reuse a concurrently created directory.
+  signal?.throwIfAborted();
+  try {
+    // Clone into an empty directory only. Git also refuses it if files appeared meanwhile.
+    await git(root, ["clone", "--", `https://github.com/${identity.owner}/${identity.repo}.git`, target], signal);
+    await repositoryRoot(target, issue, signal);
+  } catch (error) {
+    // Only remove an empty directory. Any partial checkout is retained for inspection.
+    await rmdir(target).catch(() => {});
+    throw error;
+  }
+  return target;
+}
 export async function inspectIssue(text: string, workspace: string, signal?: AbortSignal) {
   const issue = parseIssueLink(text);
   await checkedRemotes(workspace, issue);
@@ -47,12 +104,17 @@ export async function inspectIssue(text: string, workspace: string, signal?: Abo
 export async function prepareIssue(workspace: string, issue: TelegramIssue, taskId: string, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const current = await inspectIssue(issue.url, workspace, signal); // Recheck access and workspace at the execution boundary.
+  const branch = `feature/prbot-issue-${issue.number}-${taskId.slice(0, 8)}`;
+  const branches = await git(workspace, ["for-each-ref", "--format=%(refname)", `refs/heads/${branch}`], signal);
+  if (branches.split("\n").includes(`refs/heads/${branch}`)) {
+    if (await git(workspace, ["branch", "--show-current"], signal) !== branch) throw new Error("任务的 Feature 分支已经存在但当前分支不同，请在本机检查后切回，Bot 不会重建或覆盖");
+    return { branch, baseBranch: current.baseBranch }; // A switch may have succeeded before its checkpoint was saved.
+  }
   if (await git(workspace, ["status", "--porcelain"], signal)) throw new Error("工作区有未提交改动，请先在本机处理，Bot 不会覆盖这些文件");
   const base = current.baseBranch;
   await git(workspace, ["check-ref-format", "--branch", base], signal);
   signal?.throwIfAborted();
   await git(workspace, ["fetch", "origin", base], signal);
-  const branch = `feature/prbot-issue-${issue.number}-${taskId.slice(0, 8)}`;
   signal?.throwIfAborted();
   await git(workspace, ["switch", "-c", branch, "FETCH_HEAD"], signal);
   return { branch, baseBranch: base };

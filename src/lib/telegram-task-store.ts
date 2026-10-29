@@ -10,6 +10,7 @@ export type TelegramIssue = { owner: string; repo: string; number: number; url: 
 export type TelegramQuestion = { id: string; text: string; choices?: string[]; highRisk?: boolean };
 export type TelegramTask = {
   id: string; userId: string; chatId: string; workspace: string; kind: "chat" | "issue";
+  repositoryPath?: string; failedStage?: string;
   threadId?: string; status: TelegramTaskStatus; prompt: string; pending: string[];
   createdAt: string; updatedAt: string; stage?: string; issue?: TelegramIssue;
   question?: TelegramQuestion; branch?: string; prUrl?: string; error?: string;
@@ -28,7 +29,7 @@ const CURSOR = /^\d+-\d+$/;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 // These fields are validated machine identities, not message content. Redacting a short
 // credential substring here could corrupt a status, pathname or a resumable thread ID.
-const identityFields = new Set(["id", "userId", "chatId", "workspace", "kind", "status", "createdAt", "updatedAt", "threadId", "taskId", "host", "startedAt", "owner", "repo", "url", "baseBranch", "branch", "prUrl", "lastEventId"]);
+const identityFields = new Set(["id", "userId", "chatId", "workspace", "repositoryPath", "kind", "status", "createdAt", "updatedAt", "threadId", "taskId", "host", "startedAt", "owner", "repo", "url", "baseBranch", "branch", "prUrl", "lastEventId"]);
 const statuses: TelegramTaskStatus[] = ["queued", "running", "waiting_input", "awaiting_review", "completed", "failed", "cancelled", "interrupted"];
 
 // Borrowed designs: Redis Streams cursors + compare-and-delete leases, not a new queue
@@ -98,6 +99,7 @@ function assertTaskId(id: string) {
 }
 function validateTask(task: TelegramTask) {
   if (!task || typeof task !== "object" || !statuses.includes(task.status) || !Array.isArray(task.pending) || task.pending.some(message => typeof message !== "string") || typeof task.prompt !== "string" || !["chat", "issue"].includes(task.kind) || typeof task.createdAt !== "string" || typeof task.updatedAt !== "string") throw new Error("Telegram 任务信息不正确，原文件已保留");
+  if (task.repositoryPath !== undefined && (typeof task.repositoryPath !== "string" || !path.isAbsolute(task.repositoryPath))) throw new Error("任务的仓库目录不正确，原文件已保留");
   assertTaskId(task.id); scope(task.userId, task.chatId, task.workspace);
   if (task.runner && (!Number.isSafeInteger(task.runner.pid) || task.runner.pid <= 0 || typeof task.runner.host !== "string" || typeof task.runner.startedAt !== "string")) throw new Error("Telegram 运行器信息不正确，原文件已保留");
 }
@@ -120,6 +122,7 @@ export class TelegramTaskStore {
     this.prefix = `prbot:telegram:{${this.botId}}`;
     this.secrets = [credentials.botToken, credentials.token, ...secrets];
   }
+  addSecrets(secrets: readonly string[]) { this.secrets = [...new Set([...this.secrets, ...secrets])]; }
   private async command(args: (string | number)[]): Promise<unknown> {
     const response = await fetch(this.credentials.url, { method: "POST", headers: { Authorization: `Bearer ${this.credentials.token}`, "Content-Type": "application/json" }, body: JSON.stringify(args), signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error("Upstash 请求失败");

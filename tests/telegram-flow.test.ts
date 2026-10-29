@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -10,6 +10,7 @@ vi.mock("../src/lib/telegram-settings", () => ({ readTelegramSettings: async () 
 import { handleTelegramUpdate, type TelegramUpdate } from "../src/lib/telegram-bot";
 import { TelegramTaskStore, type TelegramTask } from "../src/lib/telegram-task-store";
 import { clearWorkspaceQuarantine } from "../src/lib/runner";
+import { git } from "../src/lib/telegram-github";
 
 // CI bridges Upstash's REST command shape to the service's real Redis instance.
 // Only Telegram's network transport and local settings are fixtures; SDK execution,
@@ -61,6 +62,46 @@ describe.skipIf(process.env.PRBOT_TEST_REDIS !== "1")("Telegram → worker → S
     vi.unstubAllGlobals(); vi.unstubAllEnvs();
     await rm(directory, { recursive: true, force: true });
   });
+
+  it("recovers a non-Git target and delivers an Issue PR through real Git, Redis and the SDK", async () => {
+    const remote = path.join(directory, "remote.git");
+    const seed = path.join(directory, "seed");
+    await mkdir(seed);
+    await git(directory, ["init", "--bare", remote]);
+    await git(seed, ["init", "-b", "main"]);
+    vi.stubEnv("GIT_AUTHOR_NAME", "Issue flow fixture"); vi.stubEnv("GIT_COMMITTER_NAME", "Issue flow fixture");
+    vi.stubEnv("GIT_AUTHOR_EMAIL", "fixture@example.test"); vi.stubEnv("GIT_COMMITTER_EMAIL", "fixture@example.test");
+    await writeFile(path.join(seed, "README.md"), "base\n");
+    await git(seed, ["add", "."]); await git(seed, ["-c", "commit.gpgsign=false", "commit", "-m", "Fixture base"]);
+    await git(seed, ["push", remote, "main"]); await git(remote, ["symbolic-ref", "HEAD", "refs/heads/main"]);
+    const ssh = path.join(directory, "git-ssh.mjs");
+    await writeFile(ssh, `import { spawnSync } from "node:child_process";\nconst request = process.argv.at(-1) || "";\nconst command = request.startsWith("git-upload-pack ") ? "git-upload-pack" : request.startsWith("git-receive-pack ") ? "git-receive-pack" : "";\nif (!command) process.exit(2);\nprocess.exit(spawnSync(command, [process.env.PRBOT_FLOW_REMOTE], { stdio: "inherit" }).status ?? 2);\n`);
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+    vi.stubEnv("GIT_SSH_COMMAND", `${quote(process.execPath)} ${quote(ssh)}`); vi.stubEnv("GIT_SSH_VARIANT", "simple");
+    vi.stubEnv("PRBOT_FLOW_REMOTE", remote);
+    vi.stubEnv("GIT_CONFIG_COUNT", "2");
+    vi.stubEnv("GIT_CONFIG_KEY_0", "url.git@github.com:.insteadOf"); vi.stubEnv("GIT_CONFIG_VALUE_0", "https://github.com/");
+    vi.stubEnv("GIT_CONFIG_KEY_1", "commit.gpgsign"); vi.stubEnv("GIT_CONFIG_VALUE_1", "false");
+    const target = path.join(directory, "Owner", "project");
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "precious.txt"), "keep until checked");
+    await receive(update(1, "/FinishIssue"));
+    await receive(update(2, "[[https://github.com/Owner/project/issues/14](https://github.com/Owner/project/issues/14?utm_source=chatgpt.com)](https://github.com/Owner/project/issues/14) 完成issue"));
+    const failed = await waitForTask("failed");
+    expect(failed.failedStage).toBe("preparing_repository");
+    expect(await readFile(path.join(target, "precious.txt"), "utf8")).toBe("keep until checked");
+    await rm(path.join(target, "precious.txt")); // Simulate the user resolving the occupied target.
+    await receive(update(3, "/continue"));
+    const published = await waitForTask("awaiting_review");
+    expect(published.id).toBe(failed.id); expect(published.repositoryPath).toBe(target);
+    expect(published.workspace).toBe(directory); expect(published.threadId).toBeTruthy();
+    expect(published.prUrl).toBe("https://github.com/Owner/project/pull/15");
+    expect(await git(target, ["branch", "--show-current"])).toBe(published.branch);
+    expect(await git(remote, ["show", `${published.branch}:sdk-evidence.txt`])).toContain("written through SDK subprocess");
+    await receive(update(4, "/status"));
+    expect(sent.some(message => String(message.body.text).includes(`仓库目录：${target}`))).toBe(true);
+    expect(sent.some(message => String(message.body.text).includes(published.prUrl!))).toBe(true);
+  }, 30_000);
 
   it("authorizes and deduplicates intake, answers directly, reports logs and resumes the same thread", async () => {
     await receive(update(1, "写入测试文件", 999));
