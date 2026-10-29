@@ -15,7 +15,10 @@ await writeFile(path.join(root, "app/package.json"), JSON.stringify({
 await cp("desktop/main.cjs", path.join(root, "app/main.cjs"));
 await cp("desktop/preload.cjs", path.join(root, "app/preload.cjs"));
 await cp("desktop/icons", path.join(root, "app/icons"), { recursive: true });
-await cp(".next/standalone", path.join(root, "server"), { recursive: true, dereference: true });
+await cp(".next/standalone", path.join(root, "server"), {
+  recursive: true, dereference: true,
+  filter: source => !source.split(path.sep).includes(".git"),
+});
 await cp("public", path.join(root, "server/public"), { recursive: true });
 await cp(".next/static", path.join(root, "server/.next/static"), { recursive: true });
 
@@ -30,8 +33,8 @@ async function walk(dir) {
   return (await Promise.all(entries.map(e => e.isDirectory() ? walk(path.join(dir, e.name)) : path.join(dir, e.name)))).flat();
 }
 const files = await walk(root);
-if (files.some(p => path.basename(p).startsWith(".env") || p.includes(`${path.sep}.data${path.sep}`)))
-  throw new Error("Runtime secrets/data must not be packaged");
+if (files.some(p => path.basename(p).startsWith(".env") || p.split(path.sep).some(part => part === ".data" || part === ".git")))
+  throw new Error("Runtime secrets/data and Git metadata must not be packaged");
 const binary = files.find(p => p.includes(`${path.sep}vendor${path.sep}`) && ["codex", "codex.exe"].includes(path.basename(p)));
 if (!binary) throw new Error("Codex native executable missing from standalone output");
 // Executed only by remote delivery CI: prove the actual bundled CLI can run.

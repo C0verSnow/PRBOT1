@@ -41,3 +41,7 @@
 另有完整 Telegram→真实 Redis→SDK 子进程→Git 克隆/提交/推送→PR 插件夹具回归：先验证非空目录失败且文件保留，移除占位文件后 `/continue` 恢复同一任务并交付 PR。真实 GitHub 与 Telegram 网络由隔离夹具替代。
 
 验证结果在 PR 与 tasklist.md 中记录；以对应提交的远端 CI 结果为准。
+
+## 打包回归
+
+首次远端交付发现 Next 文件追踪把应用自身的 `.git` 对象带入 standalone，macOS codesign 在只读 pack idx 文件上报 Permission denied。按 [Next.js 官方 output 文档](https://github.com/vercel/next.js/blob/canary/docs/01-app/03-api-reference/05-config/01-next-config-js/output.mdx) 的 outputFileTracingExcludes 排除构建仓库 `.git`，打包阶段再过滤并检查 Git 元数据，防止桌面产物混入仓库历史。目标运行仓库的 `.git` 检查保持正常。这个修正同样由远端构建和安装产物验证，不做本地构建。
