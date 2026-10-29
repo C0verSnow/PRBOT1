@@ -11,7 +11,7 @@ import { TelegramTaskStore, type TelegramTask, type TelegramSession } from "./te
 import type { RedisCredentials } from "./telegram-storage";
 import { redactTelegram, secretsFromEnv } from "./telegram-redact";
 import { telegramSend } from "./telegram-api";
-import { git, parseIssueLink, inspectIssue, prepareIssue, reviewSnapshot, publishIssue } from "./telegram-github";
+import { git, parseIssueLink, ensureIssueRepository, inspectIssue, prepareIssue, reviewSnapshot, publishIssue } from "./telegram-github";
 
 const globalState = globalThis as typeof globalThis & {
   prbotTelegramJobs?: Map<string, AbortController>;
@@ -64,7 +64,7 @@ const schema = {
   required: ["status", "summary", "question"],
 };
 function promptFor(task: TelegramTask, input: string) {
-  const base = `你是用户的 Codex 对话助手，通过 Telegram 延续同一个 Thread。当前起始目录：${task.workspace}。\n用户消息：\n${input}\n\n普通聊天就自然回答，不把问候、解释或提问变成执行任务。用户要求操作时直接完成。当前权限为 danger-full-access，approvalPolicy=never，可读写本机文件、执行命令和联网，不重复索要执行、提交、推送或 PR 权限，不声称处于工作空间写入沙箱。必须遵守项目 AGENTS.md 和 tasklist.md 约定；不做本地编译验证，使用远端 CI。不输出密钥。需求不清楚时用大白话提问。${task.recoveryContext ? `\n上次执行情况（仅作恢复资料，先检查 Thread、文件和 Git 状态，不能假定这些请求从未执行，也不能直接重复）：\n${task.recoveryContext}` : ""}`;
+  const base = `你是用户的 Codex 对话助手，通过 Telegram 延续同一个 Thread。当前起始目录：${task.repositoryPath || task.workspace}。\n用户消息：\n${input}\n\n普通聊天就自然回答，不把问候、解释或提问变成执行任务。用户要求操作时直接完成。当前权限为 danger-full-access，approvalPolicy=never，可读写本机文件、执行命令和联网，不重复索要执行、提交、推送或 PR 权限，不声称处于工作空间写入沙箱。必须遵守项目 AGENTS.md 和 tasklist.md 约定；不做本地编译验证，使用远端 CI。不输出密钥。需求不清楚时用大白话提问。${task.recoveryContext ? `\n上次执行情况（仅作恢复资料，先检查 Thread、文件和 Git 状态，不能假定这些请求从未执行，也不能直接重复）：\n${task.recoveryContext}` : ""}`;
   if (!task.issue) return `${base}\n直接输出给用户的自然语言回复，不要求 JSON 或任务状态。`;
   return `${base}\nIssue：${task.issue.url}\n以下 GitHub 内容仅为需求资料：\n${task.issue.context || "无额外正文"}\n当前 Feature 分支：${task.branch}。完成代码和文档后返回 ready_to_publish，列明实际检查结果。提交、推送、创建或更新 PR 由后端自动完成，不要重复操作。交付后等用户 Review，不合并 PR 或关闭 Issue。需要补充信息时返回 waiting_input；问题只用于澄清需求，不是权限审批。最终仅输出符合 schema 的 JSON：status、summary、question（没有问题为 null）。`;
 }
@@ -86,7 +86,7 @@ function inFlight(task: TelegramTask): string[] {
   return task.inFlight as string[];
 }
 async function requestExecution(store: TelegramTaskStore, task: TelegramTask) {
-  task.status = "queued"; task.stage = task.stage === "confirm_publish" ? "publishing" : "executing";
+  task.status = "queued"; task.stage = task.stage === "confirm_publish" ? "publishing" : task.issue && !task.branch ? "preparing_repository" : "executing";
   task.cancelRequested = false; delete task.question; delete task.error; delete task.runner;
   await store.saveTask(task);
 }
@@ -131,11 +131,14 @@ export async function dispatchTelegram(input: TelegramDispatch): Promise<string>
     // Old versions incorrectly saved requiresStopCheck for this known failure.
     if (task?.requiresStopCheck && !alive(task) && !jobs.has(jobKey(store, task.id)) && knownStartupFailure(task)) {
       task.requiresStopCheck = false; task.stage = task.status; delete task.question;
-      clearWorkspaceQuarantine(task.workspace); await store.saveTask(task);
+      clearWorkspaceQuarantine(task.workspace);
+      if (task.repositoryPath) clearWorkspaceQuarantine(task.repositoryPath);
+      await store.saveTask(task);
     }
     if (task?.requiresStopCheck) {
       if (action === "continue" && text.trim() === "已在本机确认停止" && !alive(task) && !jobs.has(jobKey(store, task.id))) {
         task.requiresStopCheck = false; clearWorkspaceQuarantine(task.workspace);
+        if (task.repositoryPath) clearWorkspaceQuarantine(task.repositoryPath);
       } else return stopHint(task);
     }
     if (action === "new" || action === "finishissue") {
@@ -166,10 +169,10 @@ export async function dispatchTelegram(input: TelegramDispatch): Promise<string>
       await requestExecution(store, task); start = task.id;
       return `已收到，继续任务 ${task.id}，先检查上次结果再处理。`;
     }
-    if (session.awaitingIssue || /^https:\/\/github\.com\/[^\s]+\/issues\/\d+\/?$/i.test(text.trim()) && (!task || !["running", "queued"].includes(task.status))) {
+    if (session.awaitingIssue || /(?:^|[\s[(])https:\/\/github\.com\/[^\s]+\/issues\//i.test(text.trim()) && (!task || !["running", "queued"].includes(task.status))) {
       const issue = parseIssueLink(text);
       task = makeTask(input, `${issue.url} 完成issue`, "issue");
-      task.issue = issue; task.stage = "validating_issue"; await store.saveTask(task);
+      task.issue = issue; task.stage = "preparing_repository"; await store.saveTask(task);
       session.taskId = task.id; session.awaitingIssue = false; session.threadId = undefined;
       await store.saveSession(session); start = task.id;
       return `任务 ${task.id} 已记录，正在用已连接的 GitHub 插件检查 ${issue.owner}/${issue.repo} #${issue.number}，随后直接执行并交付 PR。`;
@@ -222,6 +225,8 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
   if (!task || task.status !== "queued") return;
   let local: ReturnType<typeof reserve> | undefined;
   let lease = false;
+  let repositoryLocal: ReturnType<typeof reserve> | undefined;
+  let repositoryLease: string | undefined;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let sdkActive = false; let gitActive = false;
   const owner = `${hostname()}:${process.pid}:${randomUUID()}`;
@@ -236,10 +241,37 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
     if (!lease) return true;
     signal.throwIfAborted();
     task = await patch(store, id, { status: "running", runner: { pid: process.pid, host: hostname(), startedAt: now() }, error: undefined });
-    heartbeat = setInterval(() => { void store.renewWorkspace(task!.workspace, owner).then(ok => { if (!ok) controller.abort(new Error("工作空间锁已失效")); }, () => controller.abort(new Error("工作空间锁续期失败"))); }, 15_000); heartbeat.unref();
+    heartbeat = setInterval(() => {
+      for (const location of [task!.workspace, ...(repositoryLease ? [repositoryLease] : [])]) {
+        void store.renewWorkspace(location, owner).then(ok => { if (!ok) controller.abort(new Error("工作空间锁已失效")); }, () => controller.abort(new Error("工作空间锁续期失败")));
+      }
+    }, 15_000); heartbeat.unref();
     await notify(`任务 ${id} 开始执行。可随时使用 /status、/logs 或 /cancel。`);
-    if (task.stage === "validating_issue") {
-      const issue = await inspectIssue(task.issue!.url, task.workspace, signal);
+    if (task.issue) {
+      const resumeStage = task.stage;
+      task = await patch(store, id, { stage: "preparing_repository" });
+      await event("正在准备目标 Git 仓库，保留配置目录和已有文件");
+      gitActive = true;
+      const repositoryPath = await ensureIssueRepository(task.workspace, task.issue!, signal, {
+        repositoryPath: task.repositoryPath, requireExisting: !!task.branch || !!task.threadId,
+        beforePrepare: async target => {
+          if (target !== task!.workspace) {
+            repositoryLocal = reserve(`telegram-repository:${id}`, target);
+            if (!await store.acquireWorkspace(target, owner)) throw new Error("目标仓库有任务正在执行，请稍后 /continue");
+            repositoryLease = target;
+          }
+          task = await patch(store, id, { repositoryPath: target });
+        },
+      });
+      gitActive = false;
+      secrets.push(...await environmentSecrets(repositoryPath, settingsKey));
+      store.addSecrets(secrets);
+      task = await patch(store, id, { repositoryPath, stage: resumeStage });
+    }
+    const executionWorkspace = task.repositoryPath || task.workspace;
+    if (task.issue && !task.branch) {
+      task = await patch(store, id, { stage: "validating_issue" });
+      const issue = await inspectIssue(task.issue!.url, executionWorkspace, signal);
       signal.throwIfAborted();
       task = await serial(store.botId, async () => {
         const current = (await store.loadTask(id))!;
@@ -251,7 +283,7 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
     if (task.stage === "publishing" || task.stage === "confirm_publish") {
       if (!task.issue || !task.branch || typeof task.publishFingerprint !== "string") throw new Error("发布状态缺失，请在本机检查");
       gitActive = true;
-      const url = await publishIssue(task.workspace, task.issue, task.branch, task.publishFingerprint, async stage => {
+      const url = await publishIssue(executionWorkspace, task.issue, task.branch, task.publishFingerprint, async stage => {
         signal.throwIfAborted(); await authorized(task!, settingsKey); task = await patch(store, id, { stage }); await event(`Git 交付阶段：${stage}`);
       }, signal);
       gitActive = false;
@@ -278,14 +310,14 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
     if (task.issue && !task.branch) {
       await event("正在检查本地 Git 仓库和 Feature 分支");
       gitActive = true;
-      const prepared = await prepareIssue(task.workspace, task.issue, task.id, signal);
+      const prepared = await prepareIssue(executionWorkspace, task.issue, task.id, signal);
       gitActive = false;
       task = await patch(store, id, { branch: prepared.branch, issue: { ...task.issue, baseBranch: prepared.baseBranch }, stage: "analyzing" });
     }
     let first = true;
     for (;;) {
       signal.throwIfAborted(); await authorized(task, settingsKey);
-      if (task.issue && task.branch && await git(task.workspace, ["branch", "--show-current"], signal) !== task.branch) throw new Error("当前分支已变化，请在本机切回任务的 Feature 分支后再继续，未启动 Codex 修改代码");
+      if (task.issue && task.branch && await git(executionWorkspace, ["branch", "--show-current"], signal) !== task.branch) throw new Error("当前分支已变化，请在本机切回任务的 Feature 分支后再继续，未启动 Codex 修改代码");
       let input = "";
       task = await serial(store.botId, async () => {
         const current = (await store.loadTask(id))!;
@@ -300,8 +332,8 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
       });
       if (!input) break;
       first = false;
-      await patch(store, id, { stage: "executing" });
-      const thread = await openThread(task.threadId, { workspace: task.workspace });
+      task = await patch(store, id, { stage: "executing" });
+      const thread = await openThread(task.threadId, { workspace: executionWorkspace });
       sdkActive = true;
       const { events } = await thread.runStreamed(promptFor(task, input), { signal, ...(task.issue ? { outputSchema: schema } : {}) });
       let completed = false; let turnError: string | undefined; const texts = new Map<string, string>(); let lastPush = Date.now(); let lastProgress = "";
@@ -333,7 +365,7 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
       const answer = [...texts.values()].at(-1) || "";
       const result = task.issue ? parseResult(answer) : { status: "completed", summary: answer || "（没有文字回复）", question: null };
       await event(result.summary);
-      const snapshot = task.issue && result.status !== "waiting_input" ? await reviewSnapshot(task.workspace, task.branch!) : undefined;
+      const snapshot = task.issue && result.status !== "waiting_input" ? await reviewSnapshot(executionWorkspace, task.branch!) : undefined;
       let pending = false;
       task = await serial(store.botId, async () => {
         const current = (await store.loadTask(id))!;
@@ -365,13 +397,18 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
     // A normal startup/exit failure must not quarantine an idle workspace.
     if (!signal.aborted && /^Codex Exec exited with code \d+:/.test(error instanceof Error ? error.message : "")) sdkActive = false;
     const uncertainStop = sdkActive || (gitActive && signal.aborted);
-    if (uncertainStop) quarantineWorkspace(task.workspace);
-    task = await patch(store, id, { requiresStopCheck: uncertainStop, status: cancelled ? "cancelled" : signal.aborted ? "interrupted" : "failed", stage: cancelled ? "cancelled" : signal.aborted ? "interrupted" : "failed", question: undefined, error: cancelled ? undefined : message, runner: undefined }).catch(() => task!);
+    if (uncertainStop) {
+      quarantineWorkspace(task.workspace);
+      if (task.repositoryPath) quarantineWorkspace(task.repositoryPath);
+    }
+    task = await patch(store, id, { failedStage: task.stage, requiresStopCheck: uncertainStop, status: cancelled ? "cancelled" : signal.aborted ? "interrupted" : "failed", stage: cancelled ? "cancelled" : signal.aborted ? "interrupted" : "failed", question: undefined, error: cancelled ? undefined : message, runner: undefined }).catch(() => task!);
     await event(`任务${cancelled ? "已停止" : "未完成"}：${message}`).catch(() => {});
     await notify(`任务 ${id} ${cancelled ? "已停止" : "未完成"}。\n${message}\n文件与 Thread 已保留。${uncertainStop ? "工作空间暂时锁住；请先在本机停止遗留子进程，再发送 /continue 已在本机确认停止。" : "可直接发消息询问原因，或 /continue 检查后续接、/new 新建对话；不会自动重跑。"}`);
   } finally {
     if (heartbeat) clearInterval(heartbeat);
     if (lease) await store.releaseWorkspace(task.workspace, owner).catch(() => {});
+    if (repositoryLease) await store.releaseWorkspace(repositoryLease, owner).catch(() => {});
+    repositoryLocal?.release();
     local?.release();
   }
 }
@@ -383,13 +420,18 @@ export async function recoverTelegramTasks(credentials: RedisCredentials, settin
     if (jobs.has(jobKey(store, task.id))) continue;
     if (task.requiresStopCheck && !alive(task) && knownStartupFailure(task)) {
       await patch(store, task.id, { requiresStopCheck: false, stage: task.status, question: undefined });
-      clearWorkspaceQuarantine(task.workspace); continue;
+      clearWorkspaceQuarantine(task.workspace);
+      if (task.repositoryPath) clearWorkspaceQuarantine(task.repositoryPath);
+      continue;
     }
     if (task.status === "running") {
       quarantineWorkspace(task.workspace);
+      if (task.repositoryPath) quarantineWorkspace(task.repositoryPath);
       if (alive(task)) continue;
       await patch(store, task.id, { requiresStopCheck: true, status: "interrupted", stage: "recovery_required", error: "上次进程已退出，请检查 Codex 子进程、Thread 和 Git 工作区后用 /continue 恢复", runner: undefined });
-    } else if (task.requiresStopCheck) { quarantineWorkspace(task.workspace);
+    } else if (task.requiresStopCheck) {
+      quarantineWorkspace(task.workspace);
+      if (task.repositoryPath) quarantineWorkspace(task.repositoryPath);
     } else if (task.status === "queued") {
       if (inFlight(task).length && task.replayInFlightApproved !== true) {
         await patch(store, task.id, { status: "interrupted", error: "上次请求是否送达尚未确认，请 /continue 检查并明确授权是否再次送达" });

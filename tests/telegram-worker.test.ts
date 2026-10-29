@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 const mocks = vi.hoisted(() => ({
   settings: { projectId: "project", clientId: "client", clientSecret: "long-infisical-secret", environment: "prod", allowedUsers: "123,456", enabled: true },
-  run: vi.fn(), open: vi.fn(), send: vi.fn(async () => {}), prepare: vi.fn(), inspect: vi.fn(), publish: vi.fn(), snapshot: vi.fn(), git: vi.fn(),
+  run: vi.fn(), open: vi.fn(), send: vi.fn(async () => {}), ensure: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), publish: vi.fn(), snapshot: vi.fn(), git: vi.fn(),
 }));
 vi.mock("../src/lib/telegram-settings", () => ({ readTelegramSettings: async () => mocks.settings }));
 vi.mock("../src/lib/codex", () => ({ openThread: mocks.open, activity: () => undefined }));
 vi.mock("../src/lib/telegram-api", () => ({ telegramSend: mocks.send }));
-vi.mock("../src/lib/telegram-github", () => ({ git: mocks.git, parseIssueLink: (url: string) => ({ owner: "owner", repo: "repo", number: 14, url }), inspectIssue: mocks.inspect, prepareIssue: mocks.prepare, reviewSnapshot: mocks.snapshot, publishIssue: mocks.publish }));
+vi.mock("../src/lib/telegram-github", () => ({ ensureIssueRepository: mocks.ensure, git: mocks.git, parseIssueLink: (url: string) => ({ owner: "owner", repo: "repo", number: 14, url }), inspectIssue: mocks.inspect, prepareIssue: mocks.prepare, reviewSnapshot: mocks.snapshot, publishIssue: mocks.publish }));
 import { dispatchTelegram, recoverTelegramTasks } from "../src/lib/telegram-worker";
 import { TelegramTaskStore, type TelegramTask } from "../src/lib/telegram-task-store";
 import { reserve, clearWorkspaceQuarantine } from "../src/lib/runner";
@@ -36,6 +36,10 @@ beforeEach(async () => {
   vi.stubEnv("PRBOT_SETTINGS_FILE", path.join(directory, "settings.json"));
   vi.stubEnv("CODEX_PATH_OVERRIDE", ""); vi.stubEnv("CODEX_HOME", "");
   mocks.run.mockReset(); mocks.open.mockReset(); mocks.send.mockClear(); mocks.inspect.mockReset(); mocks.prepare.mockReset(); mocks.snapshot.mockReset(); mocks.publish.mockReset();
+  mocks.ensure.mockReset().mockImplementation(async (workspace, _issue, _signal, options) => {
+    await options.beforePrepare?.(workspace);
+    return workspace;
+  });
   mocks.git.mockReset().mockResolvedValue("feature/issue-14");
   mocks.open.mockImplementation(async () => ({ runStreamed: mocks.run }));
   let cursor = 0; const keys = new Map<string, string>();
@@ -76,6 +80,51 @@ function issueFixture() {
   fixture(result("ready_to_publish"));
 }
 describe("durable Telegram worker", { timeout: 15_000 }, () => {
+  it("recovers the old non-Git failure by preparing and validating before creating a branch", async () => {
+    issueFixture();
+    await seed({ kind: "issue", error: "fatal: not a git repository", issue: { owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14" } });
+    mocks.ensure.mockRejectedValueOnce(new Error("目标目录已有文件"));
+    await dispatch("", "continue");
+    const failed = await wait("failed");
+    expect(failed.failedStage).toBe("preparing_repository");
+    expect(mocks.inspect).not.toHaveBeenCalled(); expect(mocks.open).not.toHaveBeenCalled();
+    await dispatch("", "continue");
+    const recovered = await wait("awaiting_review");
+    expect(recovered.id).toBe(failed.id); expect(mocks.inspect).toHaveBeenCalledTimes(1);
+    expect(mocks.prepare).toHaveBeenCalledTimes(1); expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.ensure.mock.invocationCallOrder[1]).toBeLessThan(mocks.inspect.mock.invocationCallOrder[0]);
+  });
+  it("uses the prepared repository for SDK, Git and publication while preserving session scope", async () => {
+    issueFixture();
+    const target = path.join(directory, "owner", "repo");
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, ".env"), "OPENAI_API_KEY=target-private-secret-for-redaction\n");
+    mocks.ensure.mockImplementation(async (_workspace, _issue, _signal, options) => {
+      await options.beforePrepare?.(target); return target;
+    });
+    await dispatch("", "finishissue");
+    await dispatch("[任务](https://github.com/owner/repo/issues/14?utm_source=telegram) 完成issue");
+    const published = await wait("awaiting_review");
+    expect(published.workspace).toBe(directory); expect(published.repositoryPath).toBe(target);
+    expect(mocks.open).toHaveBeenCalledWith(undefined, { workspace: target });
+    expect(mocks.inspect.mock.calls[0][1]).toBe(target);
+    expect(mocks.prepare.mock.calls[0][0]).toBe(target);
+    expect(mocks.snapshot.mock.calls[0][0]).toBe(target);
+    expect(mocks.publish.mock.calls[0][0]).toBe(target);
+    expect(mocks.ensure.mock.calls.at(-1)?.[3]).toMatchObject({ repositoryPath: target, requireExisting: true });
+    const lock = reserve("available-after-delivery", target); lock.release();
+    await dispatch("继续补文档"); await wait("awaiting_review");
+    expect(mocks.prepare).toHaveBeenCalledTimes(1);
+    expect(mocks.open).toHaveBeenLastCalledWith("stable-thread", { workspace: target });
+  });
+  it("does not recreate an executed repository or replay its turn when it disappeared", async () => {
+    issueFixture();
+    await seed({ kind: "issue", branch: "feature/issue-14", threadId: "stable-thread", issue: { owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", baseBranch: "main" } });
+    mocks.ensure.mockRejectedValue(new Error("原任务的 Git 仓库已缺失"));
+    await dispatch("", "continue"); await wait("failed");
+    expect(mocks.ensure.mock.calls[0][3]).toMatchObject({ requireExisting: true });
+    expect(mocks.open).not.toHaveBeenCalled(); expect(mocks.prepare).not.toHaveBeenCalled();
+  });
   it("answers greetings directly and continues the same thread with natural language", async () => {
     fixture("你好，有什么可以帮你？"); await dispatch("你好");
     const first = await wait("completed"); expect(first.question).toBeUndefined();

@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 import { mkdtemp, mkdir, readFile, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { git, githubRemote, inspectIssue, parseIssueLink, prepareIssue, publishIssue, reviewSnapshot } from "../src/lib/telegram-github";
+import { git, githubRemote, ensureIssueRepository, inspectIssue, parseIssueLink, prepareIssue, publishIssue, reviewSnapshot } from "../src/lib/telegram-github";
 import type { TelegramIssue } from "../src/lib/telegram-task-store";
 
 const plugins = vi.hoisted(() => ({ inspect: vi.fn(), pullRequest: vi.fn() }));
@@ -36,6 +36,7 @@ beforeEach(async () => {
   await git(workspace, ["add", "."]);
   await git(workspace, ["commit", "-m", "Fixture base"]);
   await git(workspace, ["push", remote, "main"]);
+  await git(remote, ["symbolic-ref", "HEAD", "refs/heads/main"]);
   await git(workspace, ["remote", "add", "origin", "git@github.com:Owner/project.git"]);
   await git(workspace, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
   await git(workspace, ["switch", "-c", branch]);
@@ -67,6 +68,15 @@ afterEach(async () => {
 const issue = (): TelegramIssue => ({ owner: "Owner", repo: "project", number: 14, url: issueUrl, title: issueData.title, baseBranch: "main" });
 
 describe("GitHub Issue validation", () => {
+  it("extracts one canonical Issue from nested Markdown and explanatory text", () => {
+    expect(parseIssueLink(`[[${issueUrl}](${issueUrl}?utm_source=chatgpt.com)](${issueUrl}?utm_source=chatgpt.com) 完成issue`).url).toBe(issueUrl);
+    expect(parseIssueLink(`请完成 [这个任务](${issueUrl}#comment) 谢谢`).url).toBe(issueUrl);
+    for (const input of [
+      `${issueUrl} https://github.com/Owner/project/issues/15`,
+      `[${issueUrl}](https://evil.test/redirect)`,
+      `${issueUrl}%EF%BC%8CBot`, `${issueUrl}/extra`, `${issueUrl}，Bot`,
+    ]) expect(() => parseIssueLink(input)).toThrow();
+  });
   it("accepts canonical Issue URLs and common credential-free GitHub remotes", () => {
     expect(parseIssueLink(` ${issueUrl}/?utm_source=telegram#comment `)).toMatchObject({ owner: "Owner", repo: "project", number: 14, url: issueUrl });
     for (const url of ["https://github.com/Owner/project.git", "git@github.com:Owner/project.git", "ssh://git@github.com/Owner/project.git"]) expect(githubRemote(url)).toEqual({ owner: "Owner", repo: "project" });
@@ -107,6 +117,75 @@ describe("GitHub Issue validation", () => {
     await expect(prepareIssue(workspace, issue(), "cancelled", controller.signal)).rejects.toThrow();
     expect(await git(workspace, ["branch", "--show-current"])).toBe(branch);
     expect(calls).toHaveLength(0);
+  });
+  it("reuses the same task branch after a lost checkpoint without losing edits", async () => {
+    const prepared = await prepareIssue(workspace, issue(), "retry-task");
+    await writeFile(path.join(workspace, "kept.txt"), "task edits");
+    const head = await git(workspace, ["rev-parse", "HEAD"]);
+    expect(await prepareIssue(workspace, issue(), "retry-task")).toEqual(prepared);
+    expect(await git(workspace, ["rev-parse", "HEAD"])).toBe(head);
+    expect(await readFile(path.join(workspace, "kept.txt"), "utf8")).toBe("task edits");
+    await git(workspace, ["switch", "main"]);
+    await expect(prepareIssue(workspace, issue(), "retry-task")).rejects.toThrow("分支已经存在");
+    expect(await git(workspace, ["branch", "--show-current"])).toBe("main");
+  });
+});
+
+describe("safe Issue repository preparation", () => {
+  beforeEach(() => {
+    // Route HTTPS clones through the existing isolated SSH upload-pack fixture.
+    vi.stubEnv("GIT_CONFIG_COUNT", "1");
+    vi.stubEnv("GIT_CONFIG_KEY_0", "url.git@github.com:.insteadOf");
+    vi.stubEnv("GIT_CONFIG_VALUE_0", "https://github.com/");
+  });
+  it("clones from an ordinary non-Git workspace and retains unrelated files", async () => {
+    await writeFile(path.join(home, "notes.txt"), "keep me");
+    const target = await ensureIssueRepository(home, issue());
+    expect(target).toBe(path.join(home, "Owner", "project"));
+    expect(await readFile(path.join(home, "notes.txt"), "utf8")).toBe("keep me");
+    expect(await git(target, ["rev-parse", "HEAD"])).toBe(await git(remote, ["rev-parse", "main"]));
+    const prepared = await prepareIssue(target, issue(), "clone-task");
+    expect(await git(target, ["branch", "--show-current"])).toBe(prepared.branch);
+    expect(await ensureIssueRepository(home, issue(), undefined, { repositoryPath: target, requireExisting: true })).toBe(target);
+  });
+  it("accepts an empty workspace and an existing empty target", async () => {
+    const root = path.join(home, "empty");
+    const target = path.join(root, "Owner", "project");
+    await mkdir(target, { recursive: true });
+    expect(await ensureIssueRepository(root, issue())).toBe(target);
+    expect(await readFile(path.join(target, "README.md"), "utf8")).toBe("base\n");
+  });
+  it("reuses a correct root repository and rejects a wrong origin including push URLs", async () => {
+    await writeFile(path.join(workspace, "keep.txt"), "local edits");
+    expect(await ensureIssueRepository(workspace, issue())).toBe(workspace);
+    await git(workspace, ["remote", "set-url", "--push", "origin", "git@github.com:Other/repo.git"]);
+    await expect(ensureIssueRepository(workspace, issue())).rejects.toThrow("推送地址");
+    expect(await readFile(path.join(workspace, "keep.txt"), "utf8")).toBe("local edits");
+  });
+  it("preserves nonempty non-Git targets and broken .git directories", async () => {
+    const target = path.join(home, "Owner", "project");
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "precious.txt"), "keep");
+    await expect(ensureIssueRepository(home, issue())).rejects.toThrow("已有文件");
+    expect(await readFile(path.join(target, "precious.txt"), "utf8")).toBe("keep");
+    await mkdir(path.join(target, ".git"));
+    await expect(ensureIssueRepository(home, issue())).rejects.toThrow();
+    expect(await readFile(path.join(target, "precious.txt"), "utf8")).toBe("keep");
+  });
+  it("does not follow directory links or replace a missing repository of an executed task", async () => {
+    await symlink(workspace, path.join(home, "Owner"), "dir");
+    await expect(ensureIssueRepository(home, issue())).rejects.toThrow("上层目录");
+    await rm(path.join(home, "Owner"));
+    await expect(ensureIssueRepository(home, issue(), undefined, { requireExisting: true })).rejects.toThrow("原任务的 Git 仓库已缺失");
+    const controller = new AbortController(); controller.abort();
+    await expect(ensureIssueRepository(home, issue(), controller.signal)).rejects.toThrow();
+  });
+  it("recovers from a failed clone without deleting any existing files", async () => {
+    vi.stubEnv("PRBOT_TEST_GIT_REMOTE_PATH", path.join(home, "missing.git"));
+    await expect(ensureIssueRepository(home, issue())).rejects.toThrow();
+    vi.stubEnv("PRBOT_TEST_GIT_REMOTE_PATH", remote);
+    const target = await ensureIssueRepository(home, issue());
+    expect(await readFile(path.join(target, "README.md"), "utf8")).toBe("base\n");
   });
 });
 

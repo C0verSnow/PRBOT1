@@ -26,7 +26,7 @@ async function restoreTelegramQuarantine(workspacePath: string) {
     try { files = await readdir(path.join(root, bot, "tasks")); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
     for (const file of files.filter(name => /^[A-Za-z0-9_-]+\.json$/.test(name))) {
       const task = JSON.parse(await readFile(path.join(root, bot, "tasks", file), "utf8"));
-      if (task.workspace === workspacePath && (task.status === "running" || task.requiresStopCheck)) quarantineWorkspace(workspacePath);
+      if ((task.workspace === workspacePath || task.repositoryPath === workspacePath) && (task.status === "running" || task.requiresStopCheck)) quarantineWorkspace(workspacePath);
     }
   }
 }
