@@ -45,7 +45,7 @@ if (prompt.includes("PRBOT_GITHUB_PLUGIN_")) {
   const call = (id, tool, parameters, result) => emit({ type: "item.completed", item: { id, type: "mcp_tool_call", server: "github", tool, arguments: parameters, status: "completed", result: { content: [], structured_content: result } } });
   let data;
   if (inspected) {
-    const body = "Read through the configured GitHub plugin fixture";
+    const body = "Read through the configured GitHub plugin fixture; 写入测试文件";
     call("issue-plugin", "fetch_issue", { repository_full_name: repository, issue_number: metadata.issueNumber }, { issue: { url: metadata.issueUrl, issue_number: metadata.issueNumber, title: "Fixture Issue", body, state: "open" } });
     call("repo-plugin", "get_repo", { repository_full_name: repository }, { repository_full_name: repository, name: metadata.repo, owner: { login: metadata.owner }, default_branch: "main", permissions: { push: true, pull: true } });
     data = { title: "Fixture Issue", context: body, defaultBranch: "main", canRead: true, canWrite: true, isOpen: true, isPullRequest: false };
