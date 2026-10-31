@@ -152,7 +152,7 @@ export async function dispatchTelegram(input: TelegramDispatch): Promise<string>
         const fresh: TelegramSession = { userId: input.userId, chatId: input.chatId, workspace: input.workspace, updatedAt: now() };
         await store.saveSession(fresh); return "已开启新 Codex 会话，请发送消息。";
       }
-      session.awaitingIssue = true; await store.saveSession(session); return "请发送 GitHub Issue 链接，例如 https://github.com/owner/repo/issues/17；/cancel 可以退出。";
+      session.awaitingIssue = true; await store.saveSession(session); return "请发送 GitHub Issue 链接，例如 https://github.com/owner/repo/issues/17\n/cancel 可以退出。";
     }
     if (action === "confirm") {
       // Compatibility for questions created by an earlier version; no new permission gates.
@@ -165,7 +165,7 @@ export async function dispatchTelegram(input: TelegramDispatch): Promise<string>
     if (action === "continue") {
       if (!task) return "没有可继续的任务，请先发送一条消息。";
       if (["running", "queued"].includes(task.status)) return `任务 ${task.id} 仍在执行或排队，请用 /status 查看。`;
-      if (task.status === "awaiting_review" && !task.pending.length && !text.trim()) return `PR 等待 Review：${task.prUrl}。可以直接发送补充要求。`;
+      if (task.status === "awaiting_review" && !task.pending.length && !text.trim()) return `PR 等待 Review：${task.prUrl}\n可以直接发送补充要求。`;
       if (task.status === "waiting_input" && task.stage === "waiting_input") { showQuestion = task; return "请直接回答当前问题。"; }
       if (alive(task)) return "原运行器仍可能在运行，请先在本机检查，不能重复启动。";
       rememberFailure(task);
@@ -348,7 +348,7 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
         await store.saveTask(current); return current;
       });
       await event(`交付验收完成：PR ${task.prUrl}；Issue ${task.issueState}；提交 ${task.commitSha}`);
-      await notify(`任务 ${id} ${task.status === "awaiting_review" ? "全部完成，等待 Review" : "已保留后续要求或停止请求"}。\nPR：${task.prUrl}（保持 Open）\nIssue：${task.issueState}\n提交：${task.commitSha}\n远端 CI：通过\n${task.ci?.summary}\n文件：${task.changedFiles?.join("、") || "见 PR 改动"}\n文档：${task.documentation || "见 PR"}\n需求核对：${task.acceptance?.filter(item => item.phase === "implementation" && item.verified).map(item => item.requirement).join("；") || "见日志"}\nAGENTS.md：已检查，${task.instructions?.length || 0} 个读取记录，可用 /logs 查看。`);
+      await notify(`任务 ${id} ${task.status === "awaiting_review" ? "全部完成，等待 Review" : "已保留后续要求或停止请求"}。\nPR：${task.prUrl}\nPR 状态：Open，等待 Review\nIssue：${task.issueState}\n提交：${task.commitSha}\n远端 CI：通过\n${task.ci?.summary}\n文件：${task.changedFiles?.join("、") || "见 PR 改动"}\n文档：${task.documentation || "见 PR"}\n需求核对：${task.acceptance?.filter(item => item.phase === "implementation" && item.verified).map(item => item.requirement).join("；") || "见日志"}\nAGENTS.md：已检查，${task.instructions?.length || 0} 个读取记录，可用 /logs 查看。`);
       return;
     }
     signal.throwIfAborted();

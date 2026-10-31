@@ -8,6 +8,10 @@
 
 ## 做完：
 
+- [1793437822] 真实全链路通过：Bot 创建 TestRepository PR #9 并保持 Open，核实当前提交 CI 通过后自动关闭 Issue #8；任务进入 awaiting_review，Telegram 最终报告与 GitHub 状态一致。已将证据写入 docs/issue-24.md，并修正 Telegram 把相邻中文括号粘进 PR 链接的问题。
+
+- [1793437726] 本机 GitHub approve 已通过真实写操作验证：Bot 成功创建 TestRepository PR #9：https://github.com/C0verSnow/TestRepository/pull/9 ，保持 Open；继续由后端独立核实 CI 和关闭 Issue。
+
 - [1793437467] 继续真实发布时发现 PR 查询可能使用 search_issues 并限定 is:pr、is:open，旧校验未识别；已兼容合法查询并拒绝不明确或 Closed 查询，新增对应回归，明确报告审批拒绝原因。原提交仍保留，继续核实真实写操作。
 
 - [1793437391] 已在 Issue #24 文档补充独立 Codex 会话的 GitHub 审批设置、实际插件 ID 来源、never 与 approve 的区别，以及不影响其他插件和后端验收规则的说明。

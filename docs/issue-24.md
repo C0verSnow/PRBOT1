@@ -53,7 +53,7 @@ API 依据：[GitHub Check Runs](https://docs.github.com/en/rest/checks/runs#lis
 
 新增回归覆盖指令读取顺序和哈希、符号链接拒绝、需求证据缺失、CI 等待/失败/缺失/过期 SHA/分页不完整、工作流失败、重跑结果、明确与否定关闭策略、关闭后读回、网络中断恢复、取消和重启。原有 Telegram→真实 Redis→SDK 子进程→Git 克隆/提交/推送的整条 CI 回归扩展到远端检查证据与 Issue 关闭；其中 Telegram、GitHub、模型仍为隔离夹具，不能冒充真实 Bot 验收。
 
-真实 Telegram Web 已发 `/FinishIssue` 并收到 Issue 链接提示，随后发送 TestRepository #8。后续真实运行与远端 CI 结果在 tasklist.md 和 PR 中补充。
+真实 Telegram Web 已完成 `/FinishIssue` → TestRepository #8 → 更新应用后 `/continue` 恢复同一任务的真实验收，详情如下。
 
 真实联调发现并修复了验收阶段相互等待：原模型把后端 CI/PR/关闭任务如实标为 verified=false，旧校验把它们当作代码发布的前置条件。新增 implementation/delivery 阶段字段，交付项可以待后端核实，代码项仍全部要求真实证据；并新增对应远端回归。
 
@@ -73,3 +73,14 @@ default_tools_approval_mode = "approve"
 依据：[Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)、[审批行为](https://learn.chatgpt.com/docs/agent-approvals-security)。
 
 实际插件可使用 search_prs，也可使用限定 is:pr 的 search_issues 查询；校验现在接受两者，并检查全部 is/state 条件，拒绝 Issue 查询或相互矛盾的 Closed 条件。工具明确拒绝审批时，读完事件流后报告真实审批原因，不再只给“缺少证据”的笼统错误。
+
+## 真实 Bot 验收结果
+
+任务 `ecb11b7d-39d6-4b50-a434-d04d634f1f91`，同一 Codex Thread `01a190c1-e98e-77b2-a666-13b7698d5c1f`，实际仓库 `/Users/troy/Desktop/2/C0verSnow/TestRepository`，分支 `feature/prbot-issue-8-ecb11b7d`。
+
+- 已实际读取 `/Users/troy/Desktop/2/AGENTS.md`，保存读取时间与 SHA-256；读取早于代码修改。目标文件已从 GitHub 按提交 `661758cbbbe53bb92c4854d215a96722cad46270` 读回，内容为 `issue test done` 加行末换行。
+- 更新 README、四象限 tasklist，并为原来没有 CI 的测试仓库补充远端内容检查。没有本地编译、构建或运行测试。
+- Bot 自动创建 [PR #9](https://github.com/C0verSnow/TestRepository/pull/9)，保持 Open，未合并；后端实际核实 [PR 当前提交的 CI](https://github.com/C0verSnow/TestRepository/actions/runs/41187405732) 通过。
+- Bot 随后按原 Issue 正文要求关闭 [Issue #8](https://github.com/C0verSnow/TestRepository/issues/8)，GitHub 记录关闭时间为 `2026-10-31T09:09:00Z`；任务在 `09:09:19Z` 进入 awaiting_review。Telegram 最终报告已实际读回，PR、SHA、CI 和 Issue 状态与 GitHub 相符。
+- 实测同时验证了旧版非 Git 目录失败后的恢复、跨应用更新保留任务和 Thread、已提交未交付时从检查点恢复，以及 GitHub approve 的真实写入效果。失败、取消、重启等更多边界由远端隔离回归覆盖，没有声称全部在真实服务上人为制造过。
+- 最终报告中的 PR URL 改为单独一行，避免 Telegram 把紧接的中文括号算进链接；提示中的示例链接也与中文说明分行。
