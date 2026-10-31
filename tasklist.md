@@ -2,11 +2,21 @@
 
 ## 想做：
 
-- [1793428231] 完成 Issue #24：补齐 Telegram 到 GitHub 的开发、验收、交付与恢复流程，提 PR 等待审核并在检查通过后关闭 Issue。
-
-- [1793268785] 等用户 Review PR #20：https://github.com/C0verSnow/PRBOT1/pull/20 。
+- [1793438502] 等用户 Review PR #25：https://github.com/C0verSnow/PRBOT1/pull/25 。
+- [1793438502] 测试交付 PR #9 也保持 Open：https://github.com/C0verSnow/TestRepository/pull/9 。
 
 ## 做完：
+
+- [1793438502] Issue #24 已按要求关闭，PR #25 保持 Open 等用户 Review：https://github.com/C0verSnow/PRBOT1/pull/25 。
+- [1793438502] 最后代码 1ef94a5 的核心 CI 全部通过：168 项测试、26 项浏览器检查、类型检查和构建；1 项可选真实服务测试未启用。核心证据：https://github.com/C0verSnow/PRBOT1/actions/runs/41187593844 。
+- [1793438502] 最后代码的 Windows、macOS arm64、Linux 安装启动和 Docker 容器回归全部通过：https://github.com/C0verSnow/PRBOT1/actions/runs/41187593856 。
+- [1793438502] 已校验并安装最后代码的 Mac DMG，配置与 Telegram 设置和更新前一致；启动后 /status 读回原任务 awaiting_review、CI passed、Issue closed，空 /continue 只返回独立可点击的 PR 链接，没有重复开发或发布。
+- [1793438502] 真实 Bot 自动交付 TestRepository PR #9，保持 Open，并在当前提交 CI 通过后关闭 Issue #8；上层 AGENTS.md 读取证据、文件内容、文档、SHA 和 Telegram 反馈均已核对。
+- [1793438502] 已备份原应用、用户数据和 Codex 配置，按用户要求将实际 GitHub 插件设为 approve；其他插件未修改。备份位置：/Users/troy/Downloads/PRBOT-issue24-backup-1793429321 。
+- [1793438502] 最后收尾只更新 Markdown 验收记录和任务清单，使用 [skip ci]，代码与已通过 CI 并实际安装的 1ef94a5 一致。
+
+
+- [1793437874] 已从真实 Telegram 读回“全部完成，等待 Review”报告；GitHub 确认 Issue #8 在 09:09:00Z 关闭，任务在 09:09:19Z 进入 awaiting_review。当前提交 SHA、PR #9 Open 与远端 CI passed 均吻合。等待最后链接格式修正的远端验证与安装包后收尾。
 
 - [1793437822] 真实全链路通过：Bot 创建 TestRepository PR #9 并保持 Open，核实当前提交 CI 通过后自动关闭 Issue #8；任务进入 awaiting_review，Telegram 最终报告与 GitHub 状态一致。已将证据写入 docs/issue-24.md，并修正 Telegram 把相邻中文括号粘进 PR 链接的问题。
 
@@ -62,7 +72,18 @@
 - [1793268785] PR #20 已更新验收结果并保持开放、未合并，等用户 Review；按 issue 正文要求已关闭 #19。
 - [1793268785] 更新最终文档和本清单，收尾只修改 Markdown，使用 [skip ci] 避免重复编译已经通过的相同代码。
 
+
+- [1793428231] 完成 Issue #24：补齐 Telegram 到 GitHub 的开发、验收、交付与恢复流程，提 PR 等待审核并在检查通过后关闭 Issue。
+- [1793268785] 当时等待用户 Review PR #20（该 PR 后来已合并）：https://github.com/C0verSnow/PRBOT1/pull/20 。
+- [1793437313] 用户要求继续后，已从真实 Telegram 对原任务发送 /continue；使用已保存的发布检查点恢复，只核对既有提交、推送和 PR，不重跑代码开发。GitHub approve 配置正在接受真实写操作验证。
+- [1793430035] 已安装并启动本次远端通过的 PRBOT；真实 Telegram 恢复同一任务后，仓库准备和 GitHub 权限检查通过，继续核对指令读取、代码修改、CI、PR 与关闭结果。
+- [1793428312] 已在真实 Telegram Web 向 @PRbyTroy_bot 发送 /FinishIssue，等待返回；同时实现带证据的 CI 验收、关闭策略与交付恢复。
+- [1793428231] 阅读现有任务持久化、仓库准备、插件证据校验及测试，检索成熟开源设计，准备补齐验收与关闭策略。
+- [1793268785] 本次开发与验证已完成，没有未完成的代码工作。
+
 ## 没做：
+
+- [1793438502] 遵守约定，没有本地构建、编译或执行会触发编译的测试/冒烟脚本；没有合并 PR #25 或测试 PR #9。
 
 - [1793428231] 按仓库约定不运行本地构建、编译、会触发编译的测试或冒烟脚本；改用远端 CI。
 
@@ -72,12 +93,4 @@
 
 ## 在做：
 
-- [1793437313] 用户要求继续后，已从真实 Telegram 对原任务发送 /continue；使用已保存的发布检查点恢复，只核对既有提交、推送和 PR，不重跑代码开发。GitHub approve 配置正在接受真实写操作验证。
-
-- [1793430035] 已安装并启动本次远端通过的 PRBOT；真实 Telegram 恢复同一任务后，仓库准备和 GitHub 权限检查通过，继续核对指令读取、代码修改、CI、PR 与关闭结果。
-
-- [1793428312] 已在真实 Telegram Web 向 @PRbyTroy_bot 发送 /FinishIssue，等待返回；同时实现带证据的 CI 验收、关闭策略与交付恢复。
-
-- [1793428231] 阅读现有任务持久化、仓库准备、插件证据校验及测试，检索成熟开源设计，准备补齐验收与关闭策略。
-
-- [1793268785] 本次开发与验证已完成，没有未完成的代码工作。
+- [1793438502] 本次开发、远端验证和真实 Bot 验收已完成，没有正在执行的任务。

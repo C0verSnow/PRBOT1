@@ -84,3 +84,13 @@ default_tools_approval_mode = "approve"
 - Bot 随后按原 Issue 正文要求关闭 [Issue #8](https://github.com/C0verSnow/TestRepository/issues/8)，GitHub 记录关闭时间为 `2026-10-31T09:09:00Z`；任务在 `09:09:19Z` 进入 awaiting_review。Telegram 最终报告已实际读回，PR、SHA、CI 和 Issue 状态与 GitHub 相符。
 - 实测同时验证了旧版非 Git 目录失败后的恢复、跨应用更新保留任务和 Thread、已提交未交付时从检查点恢复，以及 GitHub approve 的真实写入效果。失败、取消、重启等更多边界由远端隔离回归覆盖，没有声称全部在真实服务上人为制造过。
 - 最终报告中的 PR URL 改为单独一行，避免 Telegram 把紧接的中文括号算进链接；提示中的示例链接也与中文说明分行。
+
+## 最后代码和安装验收
+
+代码提交 `1ef94a5514582cd9f0b5a46f266f82ef544ae64b` 已通过 [核心 CI](https://github.com/C0verSnow/PRBOT1/actions/runs/41187593844)：类型检查、168 项测试、生产构建和 26 项浏览器检查。1 项可选真实服务测试未启用；上述真实 Bot 结果来自实际安装程序联调。
+
+[交付 CI](https://github.com/C0verSnow/PRBOT1/actions/runs/41187593856) 全部通过：Windows x64、macOS arm64、Linux x64 安装启动，以及 Docker 镜像和真实容器回归。已从该代码的 macOS 产物校验 ZIP 与 DMG，DMG SHA-256 为 `cb3563ef512874222ce8895ac773af544d7af48bbe3a95b1c34362d1c173227d`，在 Finder 安装到 `/Applications/PRBOT.app` 并启动。
+
+更新前备份原应用、所有用户数据及 Codex 配置；工作空间和 Telegram 设置与初始备份逐字节相同。最后一次启动后真实 Telegram `/status` 仍返回原任务 awaiting_review、当前提交 CI passed、Issue closed；空的 `/continue` 只返回可点击的 Review 链接，没有重复写入或发布。
+
+[本次开发 PR #25](https://github.com/C0verSnow/PRBOT1/pull/25) 保持开放，未合并；[Issue #24](https://github.com/C0verSnow/PRBOT1/issues/24) 已在 `2026-10-31T09:20:57Z` 按正文要求关闭。最后仅 Markdown 记录更新使用 `[skip ci]`，没有改变经过验证并安装的代码。本地没有进行编译验证。GitHub 检索、候选比较和借鉴链接见上文。
