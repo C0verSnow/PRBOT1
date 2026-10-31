@@ -56,3 +56,20 @@ API 依据：[GitHub Check Runs](https://docs.github.com/en/rest/checks/runs#lis
 真实 Telegram Web 已发 `/FinishIssue` 并收到 Issue 链接提示，随后发送 TestRepository #8。后续真实运行与远端 CI 结果在 tasklist.md 和 PR 中补充。
 
 真实联调发现并修复了验收阶段相互等待：原模型把后端 CI/PR/关闭任务如实标为 verified=false，旧校验把它们当作代码发布的前置条件。新增 implementation/delivery 阶段字段，交付项可以待后端核实，代码项仍全部要求真实证据；并新增对应远端回归。
+
+## Codex 的 GitHub 审批设置
+
+真实联调还发现：聊天端 GitHub 已经允许全部操作，但 PRBOT 启动的独立 Codex CLI 会话仍可能要求批准 MCP 写操作。`approvalPolicy: never` 是“不弹审批，必须审批时拒绝”，不是“批准全部”。文件系统只读与 GitHub 工具审批也是不同的控制层。
+
+本次用户明确要求 GitHub 全部 approve 后，备份实际 `CODEX_HOME/config.toml`，按已安装 GitHub 插件 `.app.json` 中的真实应用 ID 设置：
+
+```toml
+[apps."connector_76869538009648d5b282a4bb21c3d157"]
+default_tools_approval_mode = "approve"
+```
+
+这只修改该 GitHub 插件的默认审批，不改变其他插件、登录凭据或组织强制要求；有现存 per-tool 策略时仍以实际配置合并结果为准。其他主机应先核实自己的 GitHub 插件实际 ID，不能用显示名称代替，也不要为了这个问题把所有插件全局放开。新 Codex 子进程读取设置，PRBOT 的 GitHub 桥接仍使用文件系统只读会话。后端的目标仓库、分支、SHA、CI 和关闭策略验证继续生效。
+
+依据：[Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)、[审批行为](https://learn.chatgpt.com/docs/agent-approvals-security)。
+
+实际插件可使用 search_prs，也可使用限定 is:pr 的 search_issues 查询；校验现在接受两者，并检查全部 is/state 条件，拒绝 Issue 查询或相互矛盾的 Closed 条件。工具明确拒绝审批时，读完事件流后报告真实审批原因，不再只给“缺少证据”的笼统错误。

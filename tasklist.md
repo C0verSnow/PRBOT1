@@ -8,6 +8,16 @@
 
 ## 做完：
 
+- [1793437467] 继续真实发布时发现 PR 查询可能使用 search_issues 并限定 is:pr、is:open，旧校验未识别；已兼容合法查询并拒绝不明确或 Closed 查询，新增对应回归，明确报告审批拒绝原因。原提交仍保留，继续核实真实写操作。
+
+- [1793437391] 已在 Issue #24 文档补充独立 Codex 会话的 GitHub 审批设置、实际插件 ID 来源、never 与 approve 的区别，以及不影响其他插件和后端验收规则的说明。
+
+- [1793431416] 真实任务提交 661758c 已推送，Issuetest.md 已在 GitHub 读回核对，内容检查 CI 通过。创建 PR 被独立 Codex 插件审批拒绝；用户明确要求全部 approve，已从已安装 GitHub 插件元数据确定应用 ID，备份本机 Codex 配置并将该 GitHub 插件默认审批设为 approve，其他插件未改。
+
+- [1793430940] 最新 194fa83 安装包 ZIP、DMG 校验通过；通过 Finder 更新并启动 PRBOT，保留原配置与任务。已从 Telegram 再次发送空的 /continue，沿用同一 Thread 和 feature 分支验收现有文件。
+
+- [1793430699] 最新代码 194fa83 的远端核心 CI 与全部交付 CI 通过：https://github.com/C0verSnow/PRBOT1/actions/runs/41179017628 及 https://github.com/C0verSnow/PRBOT1/actions/runs/41179017609 。正在安装含验收阶段修正的 macOS 包，原测试文件、Thread 和任务均保留。
+
 - [1793430159] 真实任务已先读取并记录上层 AGENTS.md，再创建 Issuetest.md、README、四象限清单和远端 CI；未本地编译。发现模型把后端交付步骤如实标记待完成，却被旧前置验收拦住，已用 implementation/delivery 明确负责阶段并新增回归，继续远端验证。
 
 - [1793429903] macOS ZIP 与 DMG SHA-256 校验通过，已在 Finder 替换 /Applications/PRBOT.app 并成功启动；原历史会话与工作空间保留，已从真实 Telegram 发送 /continue 恢复测试任务 ecb11b7d-39d6-4b50-a434-d04d634f1f91。
@@ -57,6 +67,8 @@
 - [1793268785] 未合并 PR，保留给用户 Review。
 
 ## 在做：
+
+- [1793437313] 用户要求继续后，已从真实 Telegram 对原任务发送 /continue；使用已保存的发布检查点恢复，只核对既有提交、推送和 PR，不重跑代码开发。GitHub approve 配置正在接受真实写操作验证。
 
 - [1793430035] 已安装并启动本次远端通过的 PRBOT；真实 Telegram 恢复同一任务后，仓库准备和 GitHub 权限检查通过，继续核对指令读取、代码修改、CI、PR 与关闭结果。
 

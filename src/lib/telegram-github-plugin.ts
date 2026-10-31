@@ -79,7 +79,17 @@ function branchArg(args: Record<string, unknown>, name: "head" | "base", issue: 
   const value = args[name] ?? queryField(args, name);
   return typeof value === "string" && value.startsWith(`${issue.owner}:`) ? value.slice(issue.owner.length + 1) : value;
 }
-function openQuery(args: Record<string, unknown>) { return args.state === "open" || queryField(args, "is") === "open" || queryField(args, "state") === "open"; }
+function queryValues(args: Record<string, unknown>, key: string) {
+  const query = typeof args.query === "string" ? args.query : typeof args.q === "string" ? args.q : "";
+  return [...query.matchAll(new RegExp(`(?:^|\\s)${key}:([^\\s]+)(?=\\s|$)`, "gi"))].map(match => match[1].replace(/^"|"$/g, "").toLowerCase());
+}
+function openQuery(args: Record<string, unknown>) {
+  const filters = [...queryValues(args, "is"), ...queryValues(args, "state")];
+  return args.state !== "closed" && !filters.includes("closed") && (args.state === "open" || filters.includes("open"));
+}
+function prQuery(call: PluginCall) {
+  return /pull|(?:^|_)prs?(?:_|$)|fetch$/.test(call.tool) || /search_issues$/.test(call.tool) && queryValues(call.args, "is").includes("pr") && !queryValues(call.args, "is").includes("issue");
+}
 function emptyList(roots: unknown[], depth = 0): boolean {
   if (depth > 8) return false;
   return roots.some(root => Array.isArray(root) ? root.length === 0 : object(root) && ["pull_requests", "pullRequests", "pulls", "prs", "issues", "items", "results", "data", "result", "response"].some(key => {
@@ -102,7 +112,7 @@ async function pluginResult(workspace: string, prompt: string, outputSchema: obj
   const thread = await openThread(undefined, { workspace, readOnly: true });
   signal.throwIfAborted();
   const { events } = await thread.runStreamed(`${prompt}\n\n${boundary}`, { signal, outputSchema });
-  const calls: PluginCall[] = []; let completed = false; let answer = "";
+  const calls: PluginCall[] = []; let completed = false; let answer = ""; let approvalFailure = false;
   for await (const event of events) {
     signal.throwIfAborted();
     if ("item" in event) {
@@ -110,6 +120,7 @@ async function pluginResult(workspace: string, prompt: string, outputSchema: obj
       if (item.type === "command_execution" || item.type === "file_change" || item.type === "web_search") {
         controller.abort(); throw new Error("GitHub 检查只能使用现有 GitHub 插件，已停止命令、文件或网页后备操作");
       }
+      if (event.type === "item.completed" && item.type === "mcp_tool_call" && /github/i.test(`${item.server} ${item.tool}`) && /requires approval.*policy is never/i.test(item.error?.message || "")) approvalFailure = true;
       if (event.type === "item.completed" && item.type === "mcp_tool_call" && /github/i.test(`${item.server} ${item.tool}`) && item.status === "completed" && !item.error) {
         const raw = item as unknown as { arguments?: unknown; result?: unknown };
         const args = json(raw.arguments); const roots = resultRoots(raw.result);
@@ -121,6 +132,7 @@ async function pluginResult(workspace: string, prompt: string, outputSchema: obj
     if (event.type === "turn.completed") completed = true;
   }
   if (!completed) throw new Error("Codex GitHub 插件连接提前结束，未确认结果；请检查后重试");
+  if (approvalFailure) throw new Error("GitHub 插件需要审批，但当前 Codex 策略为 never，写操作已被拒绝；请在 PRBOT 实际使用的 CODEX_HOME 中核对该 GitHub 插件的 approve 设置。现有提交与 PR 已保留，请 /continue 先核实远端状态");
   if (!calls.length) throw new Error("没有收到包含可识别参数和结果的成功 GitHub 插件调用，请检查本机 GitHub 插件连接和响应格式");
   let result: unknown;
   try { result = JSON.parse(answer); } catch { throw new Error("GitHub 插件没有返回约定的 JSON 结果"); }
@@ -162,7 +174,7 @@ export async function pluginEnsurePullRequest(workspace: string, issue: Telegram
   if (!exactKeys(value, ["repository", "head", "base", "found", "prUrl"]) || typeof value.repository !== "string" || value.repository.toLowerCase() !== repositoryName.toLowerCase() || value.head !== branch || value.base !== base || typeof value.found !== "boolean" || (typeof value.prUrl !== "string" && value.prUrl !== null)) throw new Error("GitHub 插件返回的 PR 仓库或分支信息不匹配");
   let provedEmpty = false;
   for (const call of calls) {
-    if (!repoBound(call.args, issue) || !/pull|(?:^|_)prs?(?:_|$)|fetch$/.test(call.tool)) continue;
+    if (!repoBound(call.args, issue) || !prQuery(call)) continue;
     const boundBranches = branchArg(call.args, "head", issue) === branch && branchArg(call.args, "base", issue) === base;
     const isCreate = /create.*pull|pull.*create/.test(call.tool);
     if (!isCreate && boundBranches && openQuery(call.args) && emptyList(call.roots)) provedEmpty = true;
