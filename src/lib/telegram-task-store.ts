@@ -17,7 +17,7 @@ export type TelegramTask = {
   cancelRequested?: boolean; runner?: { pid: number; host: string; startedAt: string };
   baseSha?: string; commitSha?: string; publishTree?: string;
   instructions?: import("./telegram-instructions").InstructionEvidence[];
-  acceptance?: { requirement: string; verified: boolean; evidence: string }[];
+  acceptance?: { phase: "implementation" | "delivery"; requirement: string; verified: boolean; evidence: string }[];
   documentation?: string; changedFiles?: string[];
   deliveryPhase?: "publishing" | "waiting_ci" | "closing_issue";
   ci?: { state: "pending" | "passed" | "failed" | "missing"; sha: string; summary: string; urls: string[]; checkedAt: string };

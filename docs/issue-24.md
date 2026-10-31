@@ -18,7 +18,7 @@ queued → preparing_repository → reading_instructions → executing
 - 复用原来的权限检查、origin 检查、非空目录保护、本机锁与 Redis 租约。Git 作者身份有问题会在启动代码修改前报错。
 - 保存分支来源和基准 SHA。创建分支后、启动可写的 Codex 回合前，后端实际读取从文件系统根到目标目录的 `AGENTS.md`，以及 Git 列出的仓库内已跟踪和未忽略的嵌套 `AGENTS.md`。按路径向 Codex 提供指令内容，持久化只保留路径、哈希和时间；不保存指令正文。
 - 指令符号链接、非普通文件、读取失败或总大小超过 256 KB 时停止。忽略目录内的新文件或新建指令仍要求 Codex 在修改对应路径前自行检查，后端审计只证明已记录的文件，不声称覆盖所有未来路径。
-- 模型必须返回逐项需求核对和文档说明。没有证据或有未完成项时不能进入发布。需求语义仍由 Codex 核对；后端独立核实文件差异、仓库身份、当前提交和远端 CI，不把自然语言结论当作远端证据。没有 CI 的目标仓库要求 Codex 添加适用的 GitHub Actions 检查。
+- 模型必须返回逐项需求核对和文档说明，并明确 phase。implementation 包括代码、文件和文档，必须至少一项且全部核实；delivery 包括提交、PR、CI 和关闭，可以在 ready_to_publish 时仍未完成，由后端发布后独立验证。不能要求尚未发布的代码先通过远端 CI，也不能把未完成的代码项目混进交付阶段冒充完成。需求语义仍由 Codex 核对；后端独立核实文件差异、仓库身份、当前提交和远端 CI，不把自然语言结论当作远端证据。没有 CI 的目标仓库要求 Codex 添加适用的 GitHub Actions 检查。
 
 ## CI 和关闭 Issue
 
@@ -54,3 +54,5 @@ API 依据：[GitHub Check Runs](https://docs.github.com/en/rest/checks/runs#lis
 新增回归覆盖指令读取顺序和哈希、符号链接拒绝、需求证据缺失、CI 等待/失败/缺失/过期 SHA/分页不完整、工作流失败、重跑结果、明确与否定关闭策略、关闭后读回、网络中断恢复、取消和重启。原有 Telegram→真实 Redis→SDK 子进程→Git 克隆/提交/推送的整条 CI 回归扩展到远端检查证据与 Issue 关闭；其中 Telegram、GitHub、模型仍为隔离夹具，不能冒充真实 Bot 验收。
 
 真实 Telegram Web 已发 `/FinishIssue` 并收到 Issue 链接提示，随后发送 TestRepository #8。后续真实运行与远端 CI 结果在 tasklist.md 和 PR 中补充。
+
+真实联调发现并修复了验收阶段相互等待：原模型把后端 CI/PR/关闭任务如实标为 verified=false，旧校验把它们当作代码发布的前置条件。新增 implementation/delivery 阶段字段，交付项可以待后端核实，代码项仍全部要求真实证据；并新增对应远端回归。

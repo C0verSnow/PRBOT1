@@ -8,6 +8,20 @@
 
 ## 做完：
 
+- [1793430159] 真实任务已先读取并记录上层 AGENTS.md，再创建 Issuetest.md、README、四象限清单和远端 CI；未本地编译。发现模型把后端交付步骤如实标记待完成，却被旧前置验收拦住，已用 implementation/delivery 明确负责阶段并新增回归，继续远端验证。
+
+- [1793429903] macOS ZIP 与 DMG SHA-256 校验通过，已在 Finder 替换 /Applications/PRBOT.app 并成功启动；原历史会话与工作空间保留，已从真实 Telegram 发送 /continue 恢复测试任务 ecb11b7d-39d6-4b50-a434-d04d634f1f91。
+
+- [1793429670] 提交 47484c1 的全部远端交付 CI 通过：https://github.com/C0verSnow/PRBOT1/actions/runs/41177795155 ，包含 Windows x64、macOS arm64、Linux x64 安装启动验证和 Docker 容器回归。已通过 GitHub 插件取得匹配提交的 macOS 产物，正在本机校验下载。
+
+- [1793429321] 已退出旧版 PRBOT，备份应用和全部用户数据到 /Users/troy/Downloads/PRBOT-issue24-backup-1793429321；备份目录权限为 0700。没有更改原配置和任务数据，准备安装远端通过验证的 macOS 包。
+
+- [1793429224] 提交 47484c1 的远端核心 CI 全部通过：https://github.com/C0verSnow/PRBOT1/actions/runs/41177795156 ，包括类型检查、测试、生产构建与浏览器回归。等待远端安装包验证完成后更新本机 PRBOT。
+
+- [1793429133] 第三轮远端 CI 已通过类型检查、单元/集成测试及生产构建，正在继续浏览器检查；安装包在三种系统和 Docker 远端验证中，本地仍未编译。
+
+- [1793429066] 已直接操控现有 /Applications/PRBOT.app，确认项目目录仍是 /Users/troy/Desktop/2，Telegram 已启用；只读取设置后关闭弹窗，没有修改配置。等待 CI 通过后更新同一应用并恢复原测试任务。
+
 - [1793429035] 第二轮远端类型检查通过，162 项测试通过、2 项 SDK 交付夹具失败；定位到测试夹具把通用边界里的 CLOSE 标记当成当前阶段，已改为只识别提示开头，继续远端完整验证。
 
 - [1793428932] 真实 Telegram 测试任务 ecb11b7d-39d6-4b50-a434-d04d634f1f91 在旧版 PRBOT 报 not a git repository；已确认需更新安装包，用户授权保留配置和任务后更新再测。
@@ -43,6 +57,8 @@
 - [1793268785] 未合并 PR，保留给用户 Review。
 
 ## 在做：
+
+- [1793430035] 已安装并启动本次远端通过的 PRBOT；真实 Telegram 恢复同一任务后，仓库准备和 GitHub 权限检查通过，继续核对指令读取、代码修改、CI、PR 与关闭结果。
 
 - [1793428312] 已在真实 Telegram Web 向 @PRbyTroy_bot 发送 /FinishIssue，等待返回；同时实现带证据的 CI 验收、关闭策略与交付恢复。
 

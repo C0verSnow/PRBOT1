@@ -24,7 +24,7 @@ function dispatch(text: string, action: "message" | "confirm" | "continue" | "ca
 }
 async function current() { const session = await store.loadSession("123", "123", directory); return session.taskId ? store.loadTask(session.taskId) : undefined; }
 async function wait(status: TelegramTask["status"]) { await vi.waitFor(async () => expect((await current())?.status).toBe(status), { timeout: 5000 }); return (await current())!; }
-const result = (status = "completed", question: object | null = null) => JSON.stringify({ status, summary: "已处理", acceptance: [{ requirement: "实现需求", verified: true, evidence: "已读回文件并核对" }], documentation: "已更新 README", question });
+const result = (status = "completed", question: object | null = null) => JSON.stringify({ status, summary: "已处理", acceptance: [{ phase: "implementation", requirement: "实现需求", verified: true, evidence: "已读回文件并核对" }], documentation: "已更新 README", question });
 function fixture(text: string) {
   mocks.run.mockImplementation(async () => ({ events: (async function* () {
     yield { type: "thread.started", thread_id: "stable-thread" };
@@ -281,6 +281,15 @@ describe("Issue #24 validated delivery and resume", { timeout: 15_000 }, () => {
     issueFixture(); fixture(JSON.stringify({ status: "ready_to_publish", summary: "done", question: null }));
     await dispatch("https://github.com/owner/repo/issues/14"); const task = await wait("failed");
     expect(task.error).toContain("验收或文档"); expect(mocks.publish).not.toHaveBeenCalled(); expect(mocks.close).not.toHaveBeenCalled();
+  });
+  it("publishes completed implementation while independently verifying pending backend delivery", async () => {
+    issueFixture(); fixture(JSON.stringify({ status: "ready_to_publish", summary: "文件已完成，交付由后端继续", question: null, documentation: "README 已更新", acceptance: [
+      { phase: "implementation", requirement: "Issuetest.md", verified: true, evidence: "已读回 issue test done" },
+      { phase: "delivery", requirement: "CI、PR 和关闭 Issue", verified: false, evidence: "尚未推送，等待后端核实" },
+    ] }));
+    mocks.delivery.mockResolvedValue({ sha: "a".repeat(40), state: "passed", summary: "verify: success", urls: [], issueState: "open", closePolicy: "after_ci" });
+    await dispatch("https://github.com/owner/repo/issues/14"); const task = await wait("awaiting_review");
+    expect(task.issueState).toBe("closed"); expect(mocks.delivery).toHaveBeenCalled(); expect(mocks.close).toHaveBeenCalledTimes(1);
   });
   it("keeps a failing CI's PR open and resumes checks without rerunning development or creating another PR", async () => {
     issueFixture(); mocks.delivery.mockResolvedValueOnce({ sha: "a".repeat(40), state: "failed", summary: "verify: failure", urls: [], issueState: "open", closePolicy: "after_ci" });
