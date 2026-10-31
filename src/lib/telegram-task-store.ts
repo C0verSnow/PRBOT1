@@ -6,7 +6,7 @@ import { redactTelegram } from "./telegram-redact";
 import type { RedisCredentials } from "./telegram-storage";
 
 export type TelegramTaskStatus = "queued" | "running" | "waiting_input" | "awaiting_review" | "completed" | "failed" | "cancelled" | "interrupted";
-export type TelegramIssue = { owner: string; repo: string; number: number; url: string; title?: string; baseBranch?: string; context?: string };
+export type TelegramIssue = { owner: string; repo: string; number: number; url: string; title?: string; baseBranch?: string; context?: string; closePolicy?: "after_ci" | "keep_open" };
 export type TelegramQuestion = { id: string; text: string; choices?: string[]; highRisk?: boolean };
 export type TelegramTask = {
   id: string; userId: string; chatId: string; workspace: string; kind: "chat" | "issue";
@@ -15,6 +15,13 @@ export type TelegramTask = {
   createdAt: string; updatedAt: string; stage?: string; issue?: TelegramIssue;
   question?: TelegramQuestion; branch?: string; prUrl?: string; error?: string;
   cancelRequested?: boolean; runner?: { pid: number; host: string; startedAt: string };
+  baseSha?: string; commitSha?: string; publishTree?: string;
+  instructions?: import("./telegram-instructions").InstructionEvidence[];
+  acceptance?: { phase: "implementation" | "delivery"; requirement: string; verified: boolean; evidence: string }[];
+  documentation?: string; changedFiles?: string[];
+  deliveryPhase?: "publishing" | "waiting_ci" | "closing_issue";
+  ci?: { state: "pending" | "passed" | "failed" | "missing"; sha: string; summary: string; urls: string[]; checkedAt: string };
+  issueState?: "open" | "closed";
   lastEventId?: string; [key: string]: unknown;
 };
 export type TelegramSession = {
@@ -29,7 +36,7 @@ const CURSOR = /^\d+-\d+$/;
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 // These fields are validated machine identities, not message content. Redacting a short
 // credential substring here could corrupt a status, pathname or a resumable thread ID.
-const identityFields = new Set(["id", "userId", "chatId", "workspace", "repositoryPath", "kind", "status", "createdAt", "updatedAt", "threadId", "taskId", "host", "startedAt", "owner", "repo", "url", "baseBranch", "branch", "prUrl", "lastEventId"]);
+const identityFields = new Set(["id", "userId", "chatId", "workspace", "repositoryPath", "kind", "status", "createdAt", "updatedAt", "threadId", "taskId", "host", "startedAt", "owner", "repo", "url", "baseBranch", "branch", "prUrl", "lastEventId", "baseSha", "commitSha", "sha", "sha256", "readAt", "closePolicy", "deliveryPhase", "issueState"]);
 const statuses: TelegramTaskStatus[] = ["queued", "running", "waiting_input", "awaiting_review", "completed", "failed", "cancelled", "interrupted"];
 
 // Borrowed designs: Redis Streams cursors + compare-and-delete leases, not a new queue

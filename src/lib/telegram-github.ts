@@ -91,15 +91,15 @@ export async function ensureIssueRepository(workspace: string, issue: TelegramIs
   }
   return target;
 }
-export async function inspectIssue(text: string, workspace: string, signal?: AbortSignal) {
+export async function inspectIssue(text: string, workspace: string, signal?: AbortSignal, allowClosed = false) {
   const issue = parseIssueLink(text);
   await checkedRemotes(workspace, issue);
   const detail = await pluginInspectIssue(workspace, issue, signal);
   if (!detail.canRead) throw new Error("GitHub 插件无法读取这个 Issue，请检查已连接账号的仓库权限");
-  if (detail.isPullRequest || !detail.isOpen) throw new Error("链接必须指向仍然打开的 Issue，不能是 PR");
+  if (detail.isPullRequest || !detail.isOpen && !allowClosed) throw new Error("链接必须指向仍然打开的 Issue，不能是 PR");
   if (!detail.canWrite) throw new Error("GitHub 插件没有确认当前账号的仓库写入权限，请检查插件连接和仓库授权");
   await git(workspace, ["check-ref-format", "--branch", detail.defaultBranch]);
-  return { ...issue, title: detail.title.slice(0, 200), baseBranch: detail.defaultBranch, context: detail.context.slice(0, 60_000) };
+  return { ...issue, title: detail.title.slice(0, 200), baseBranch: detail.defaultBranch, context: detail.context.slice(0, 60_000), closePolicy: detail.closePolicy || "keep_open" };
 }
 export async function prepareIssue(workspace: string, issue: TelegramIssue, taskId: string, signal?: AbortSignal) {
   signal?.throwIfAborted();
@@ -108,7 +108,7 @@ export async function prepareIssue(workspace: string, issue: TelegramIssue, task
   const branches = await git(workspace, ["for-each-ref", "--format=%(refname)", `refs/heads/${branch}`], signal);
   if (branches.split("\n").includes(`refs/heads/${branch}`)) {
     if (await git(workspace, ["branch", "--show-current"], signal) !== branch) throw new Error("任务的 Feature 分支已经存在但当前分支不同，请在本机检查后切回，Bot 不会重建或覆盖");
-    return { branch, baseBranch: current.baseBranch }; // A switch may have succeeded before its checkpoint was saved.
+    return { branch, baseBranch: current.baseBranch, baseSha: await git(workspace, ["merge-base", `origin/${current.baseBranch}`, "HEAD"], signal) }; // A switch may have succeeded before its checkpoint was saved.
   }
   if (await git(workspace, ["status", "--porcelain"], signal)) throw new Error("工作区有未提交改动，请先在本机处理，Bot 不会覆盖这些文件");
   const base = current.baseBranch;
@@ -117,7 +117,7 @@ export async function prepareIssue(workspace: string, issue: TelegramIssue, task
   await git(workspace, ["fetch", "origin", base], signal);
   signal?.throwIfAborted();
   await git(workspace, ["switch", "-c", branch, "FETCH_HEAD"], signal);
-  return { branch, baseBranch: base };
+  return { branch, baseBranch: base, baseSha: await git(workspace, ["rev-parse", "HEAD"], signal) };
 }
 function sensitivePath(file: string) {
   return file.split(/[\\/]/).some(part => {
@@ -184,12 +184,12 @@ export async function reviewSnapshot(workspace: string, branch: string) {
   const head = await git(workspace, ["rev-parse", "HEAD"]);
   return { fingerprint: createHash("sha256").update(JSON.stringify([head, status, diff, untracked, contents])).digest("hex"), summary: (await git(workspace, ["diff", "--stat", "HEAD"])) || statusPaths(status).join("\n") || "工作区没有文件改动", hasChanges: !!status };
 }
-export async function publishIssue(workspace: string, issue: TelegramIssue, branch: string, fingerprint: string, stage: (name: string) => Promise<void>, signal?: AbortSignal) {
+export async function publishIssue(workspace: string, issue: TelegramIssue, branch: string, fingerprint: string, stage: (name: string) => Promise<void>, signal?: AbortSignal, committedSha?: string, expectedTree?: string) {
   signal?.throwIfAborted();
-  const current = await inspectIssue(issue.url, workspace, signal);
+  const current = await inspectIssue(issue.url, workspace, signal, true);
   if (current.baseBranch !== issue.baseBranch) throw new Error("仓库默认分支已变化，请重新检查并确认发布");
   const snapshot = await reviewSnapshot(workspace, branch);
-  if (snapshot.fingerprint !== fingerprint) throw new Error("确认之后文件又变了，请重新检查改动并确认发布");
+  if (snapshot.fingerprint !== fingerprint && !(!snapshot.hasChanges && (committedSha && await git(workspace, ["rev-parse", "HEAD"], signal) === committedSha || expectedTree && await git(workspace, ["rev-parse", "HEAD^{tree}"], signal) === expectedTree))) throw new Error("确认之后文件又变了，请重新检查改动并确认发布");
   // A failed POST can have succeeded on GitHub: query by head before retrying.
   const existing = await pluginEnsurePullRequest(workspace, issue, branch, issue.baseBranch!, false, signal);
   if (existing && !snapshot.hasChanges) {
@@ -202,11 +202,15 @@ export async function publishIssue(workspace: string, issue: TelegramIssue, bran
   signal?.throwIfAborted();
   await stage("committing");
   // Access checks and PR lookup may take time; require the same reviewed files at staging.
-  if ((await reviewSnapshot(workspace, branch)).fingerprint !== fingerprint) throw new Error("确认之后文件又变了，请重新检查改动并确认发布");
+  if ((await reviewSnapshot(workspace, branch)).fingerprint !== snapshot.fingerprint) throw new Error("确认之后文件又变了，请重新检查改动并确认发布");
   if (snapshot.hasChanges) {
     await git(workspace, ["add", "--all"], signal);
+    const staged = await git(workspace, ["write-tree"], signal);
+    await stage("staged");
+    if (await git(workspace, ["write-tree"], signal) !== staged || await git(workspace, ["diff", "--name-only"], signal) || await git(workspace, ["ls-files", "--others", "--exclude-standard"], signal)) throw new Error("暂存之后文件又变了，请检查后再发布");
     await git(workspace, ["commit", "-m", `Implement issue #${issue.number} via PRBOT`], signal);
   }
+  await stage("committed");
   if (!await git(workspace, ["log", `origin/${issue.baseBranch}..HEAD`, "--oneline"])) throw new Error("没有可交付的提交，无法创建 PR");
   await stage("pushing");
   signal?.throwIfAborted();

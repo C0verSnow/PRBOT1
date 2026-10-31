@@ -1,0 +1,96 @@
+# Issue #24：从 Telegram 指令到经过验收的 PR
+
+目标：https://github.com/C0verSnow/PRBOT1/issues/24 。测试任务：https://github.com/C0verSnow/TestRepository/issues/8 。
+
+## 使用与结果
+
+在 `@PRbyTroy_bot` 发送 `/FinishIssue`，再发送一个 Issue 链接。Bot 会准备本地仓库和独立 feature 分支，读取指令，执行修改，提交并推送 PR，等待远端 CI，通过后按 Issue 正文处理关闭。PR 保持 Open 等人 Review，不自动合并。
+
+```
+queued → preparing_repository → reading_instructions → executing
+       → validating → publishing → waiting_ci → closing_issue → awaiting_review
+```
+
+`/status` 显示真实仓库、基准与交付 SHA、PR、CI 结果与链接、Issue 状态、文件、文档说明和指令读取记录数量。`/logs` 能查到带 Unix Timestamp 的阶段记录和每个指令文件的路径、SHA-256、读取时间。不要把模型返回的 `ready_to_publish` 当作测试通过。
+
+## 修改代码前检查什么
+
+- 复用原来的权限检查、origin 检查、非空目录保护、本机锁与 Redis 租约。Git 作者身份有问题会在启动代码修改前报错。
+- 保存分支来源和基准 SHA。创建分支后、启动可写的 Codex 回合前，后端实际读取从文件系统根到目标目录的 `AGENTS.md`，以及 Git 列出的仓库内已跟踪和未忽略的嵌套 `AGENTS.md`。按路径向 Codex 提供指令内容，持久化只保留路径、哈希和时间；不保存指令正文。
+- 指令符号链接、非普通文件、读取失败或总大小超过 256 KB 时停止。忽略目录内的新文件或新建指令仍要求 Codex 在修改对应路径前自行检查，后端审计只证明已记录的文件，不声称覆盖所有未来路径。
+- 模型必须返回逐项需求核对和文档说明，并明确 phase。implementation 包括代码、文件和文档，必须至少一项且全部核实；delivery 包括提交、PR、CI 和关闭，可以在 ready_to_publish 时仍未完成，由后端发布后独立验证。不能要求尚未发布的代码先通过远端 CI，也不能把未完成的代码项目混进交付阶段冒充完成。需求语义仍由 Codex 核对；后端独立核实文件差异、仓库身份、当前提交和远端 CI，不把自然语言结论当作远端证据。没有 CI 的目标仓库要求 Codex 添加适用的 GitHub Actions 检查。
+
+## CI 和关闭 Issue
+
+通过已登录的 Codex GitHub 插件实际读取 PR、目标 Issue、当前提交的 Check Runs、Commit Status 和按 SHA 筛选的 Actions runs。后端直接从成功工具调用的参数和返回值取得证据，模型最终 JSON 中的 `ok` 不决定通过与否。核对 PR 仍为 Open、head/base、head 仓库和 SHA 一致；本地分支、HEAD 和干净状态也必须一致。
+
+同一检查或工作流的较新结果覆盖旧失败，其他失败不能被覆盖。三个来源必须读取完整，超过一页 100 项或格式缺失就停止并明确提示，不能凭第一页通过结果关闭 Issue。至少一项 success，其他结果全是 success/neutral/skipped，且没有等待项才能通过；全部跳过、没有检查、仍在运行都不能当作通过。CI 失败立即保留 PR 和日志；待完成或暂无结果每 15 秒再核实，最多等待 30 分钟，超时后 `/continue` 可重新等待，不自动重跑失败工作流。
+
+只有**实际读取的 Issue 正文**明确要求“完成后关闭 Issue”或等价英文，才允许在 CI 通过后关闭；否定表达优先，引用和代码块不授权关闭，评论或模型生成的字段不改变策略。关闭前再次读取目标正文与状态；已 Closed 就返回，不重复更新。调用关闭后必须再读取 Closed，网络中断不能凭写请求的返回虚报完成。正文没有明确关闭要求时，Issue 保持 Open，但经过验收的 PR 仍可进入 awaiting_review。
+
+## 中断、取消与恢复
+
+发布阶段、暂存树、提交 SHA、PR URL、CI 结果、Issue 状态分别保存检查点。提交前保存暂存树和暂存后的文件指纹，提交完成后保存 SHA。重试提交、推送或 PR 创建时先核对本地与远端状态，同 head/base 的 Open PR 优先复用，不重复创建。
+
+等待 CI 或关闭阶段失败后，空的 `/continue` 只核实交付结果，不重新执行开发回合。需要修代码时用 `/continue 具体修复要求`，或在 Review 阶段直接发送要求，沿用原 Thread、分支和 PR。执行期间收到补充要求会在回合或交付边界处理，不按旧结果提前宣布完成。CI 等待与关闭阶段的已退出运行器可以重启恢复；正在执行 Git 或 Codex 时仍使用原有停止检查，不能假定子进程已停止。
+
+`/cancel` 保留文件、分支、PR 和恢复记录，不做 clean/reset 或撤销远端结果。取消后续接仍先核实真实状态。关闭请求与取消同时发生时，远端可能已经关闭；取消不能撤销已经发出的操作，恢复必须读回状态。
+
+## GitHub 检索与借鉴
+
+查询日期：2026-10-31。只借鉴设计，按本项目实现，没有复制代码，也没有增加运行时依赖。
+
+| 项目 | 活跃、许可与维护证据 | 实现、依赖和已知问题对比 |
+| --- | --- | --- |
+| [cli/cli](https://github.com/cli/cli) | MIT，46815 star，最近推送 2026-10-30；[Issue #14843](https://github.com/cli/cli/issues/14843) 有维护者调查与回复 | [pr checks](https://github.com/cli/cli/blob/trunk/pkg/cmd/pr/checks/checks.go) 聚合检查、区分等待与失败、完整读分页；没有检查时明确报错。Go/Cobra/GraphQL 不适合直接引入现有 Node 桌面程序，本项目沿用 Codex GitHub 插件，缺少完整结果时拒绝通过。#14843 显示命令成功与 GitHub 状态可能不一致，因此读回远端状态，不能只信退出码。 |
+| [temporalio/sdk-typescript](https://github.com/temporalio/sdk-typescript) | MIT，945 star，最近推送 2026-10-31；[Issue #1733](https://github.com/temporalio/sdk-typescript/issues/1733) 有维护者解释并记录修复决策 | [workflow activities](https://github.com/temporalio/sdk-typescript/blob/main/packages/workflow/src/workflow.ts) 把外部步骤与可恢复流程分开，超时和重试有明确边界。完整 Temporal 需要服务端和更多部署依赖，本项目保留原有文件持久化、Redis Streams 与租约，只增加交付检查点。#1733 提醒重试配置的特殊值会出现文档与实现差异，本项目使用明确的时间边界，不引入无限重试。 |
+
+API 依据：[GitHub Check Runs](https://docs.github.com/en/rest/checks/runs#list-check-runs-for-a-git-reference)、[Actions workflow runs](https://docs.github.com/en/rest/actions/workflow-runs#list-workflow-runs-for-a-repository)、[Codex SDK](https://developers.openai.com/codex/sdk/)。
+
+## 验证记录
+
+遵守上层 AGENTS.md，没有本地构建、编译、TypeScript/Vitest、开发服务或冒烟验证。代码阅读与 `git diff --check` 可以在本地进行。编译与测试使用仓库已有 GitHub Actions。
+
+新增回归覆盖指令读取顺序和哈希、符号链接拒绝、需求证据缺失、CI 等待/失败/缺失/过期 SHA/分页不完整、工作流失败、重跑结果、明确与否定关闭策略、关闭后读回、网络中断恢复、取消和重启。原有 Telegram→真实 Redis→SDK 子进程→Git 克隆/提交/推送的整条 CI 回归扩展到远端检查证据与 Issue 关闭；其中 Telegram、GitHub、模型仍为隔离夹具，不能冒充真实 Bot 验收。
+
+真实 Telegram Web 已完成 `/FinishIssue` → TestRepository #8 → 更新应用后 `/continue` 恢复同一任务的真实验收，详情如下。
+
+真实联调发现并修复了验收阶段相互等待：原模型把后端 CI/PR/关闭任务如实标为 verified=false，旧校验把它们当作代码发布的前置条件。新增 implementation/delivery 阶段字段，交付项可以待后端核实，代码项仍全部要求真实证据；并新增对应远端回归。
+
+## Codex 的 GitHub 审批设置
+
+真实联调还发现：聊天端 GitHub 已经允许全部操作，但 PRBOT 启动的独立 Codex CLI 会话仍可能要求批准 MCP 写操作。`approvalPolicy: never` 是“不弹审批，必须审批时拒绝”，不是“批准全部”。文件系统只读与 GitHub 工具审批也是不同的控制层。
+
+本次用户明确要求 GitHub 全部 approve 后，备份实际 `CODEX_HOME/config.toml`，按已安装 GitHub 插件 `.app.json` 中的真实应用 ID 设置：
+
+```toml
+[apps."connector_76869538009648d5b282a4bb21c3d157"]
+default_tools_approval_mode = "approve"
+```
+
+这只修改该 GitHub 插件的默认审批，不改变其他插件、登录凭据或组织强制要求；有现存 per-tool 策略时仍以实际配置合并结果为准。其他主机应先核实自己的 GitHub 插件实际 ID，不能用显示名称代替，也不要为了这个问题把所有插件全局放开。新 Codex 子进程读取设置，PRBOT 的 GitHub 桥接仍使用文件系统只读会话。后端的目标仓库、分支、SHA、CI 和关闭策略验证继续生效。
+
+依据：[Codex 配置参考](https://learn.chatgpt.com/docs/config-file/config-reference)、[审批行为](https://learn.chatgpt.com/docs/agent-approvals-security)。
+
+实际插件可使用 search_prs，也可使用限定 is:pr 的 search_issues 查询；校验现在接受两者，并检查全部 is/state 条件，拒绝 Issue 查询或相互矛盾的 Closed 条件。工具明确拒绝审批时，读完事件流后报告真实审批原因，不再只给“缺少证据”的笼统错误。
+
+## 真实 Bot 验收结果
+
+任务 `ecb11b7d-39d6-4b50-a434-d04d634f1f91`，同一 Codex Thread `01a190c1-e98e-77b2-a666-13b7698d5c1f`，实际仓库 `/Users/troy/Desktop/2/C0verSnow/TestRepository`，分支 `feature/prbot-issue-8-ecb11b7d`。
+
+- 已实际读取 `/Users/troy/Desktop/2/AGENTS.md`，保存读取时间与 SHA-256；读取早于代码修改。目标文件已从 GitHub 按提交 `661758cbbbe53bb92c4854d215a96722cad46270` 读回，内容为 `issue test done` 加行末换行。
+- 更新 README、四象限 tasklist，并为原来没有 CI 的测试仓库补充远端内容检查。没有本地编译、构建或运行测试。
+- Bot 自动创建 [PR #9](https://github.com/C0verSnow/TestRepository/pull/9)，保持 Open，未合并；后端实际核实 [PR 当前提交的 CI](https://github.com/C0verSnow/TestRepository/actions/runs/41187405732) 通过。
+- Bot 随后按原 Issue 正文要求关闭 [Issue #8](https://github.com/C0verSnow/TestRepository/issues/8)，GitHub 记录关闭时间为 `2026-10-31T09:09:00Z`；任务在 `09:09:19Z` 进入 awaiting_review。Telegram 最终报告已实际读回，PR、SHA、CI 和 Issue 状态与 GitHub 相符。
+- 实测同时验证了旧版非 Git 目录失败后的恢复、跨应用更新保留任务和 Thread、已提交未交付时从检查点恢复，以及 GitHub approve 的真实写入效果。失败、取消、重启等更多边界由远端隔离回归覆盖，没有声称全部在真实服务上人为制造过。
+- 最终报告中的 PR URL 改为单独一行，避免 Telegram 把紧接的中文括号算进链接；提示中的示例链接也与中文说明分行。
+
+## 最后代码和安装验收
+
+代码提交 `1ef94a5514582cd9f0b5a46f266f82ef544ae64b` 已通过 [核心 CI](https://github.com/C0verSnow/PRBOT1/actions/runs/41187593844)：类型检查、168 项测试、生产构建和 26 项浏览器检查。1 项可选真实服务测试未启用；上述真实 Bot 结果来自实际安装程序联调。
+
+[交付 CI](https://github.com/C0verSnow/PRBOT1/actions/runs/41187593856) 全部通过：Windows x64、macOS arm64、Linux x64 安装启动，以及 Docker 镜像和真实容器回归。已从该代码的 macOS 产物校验 ZIP 与 DMG，DMG SHA-256 为 `cb3563ef512874222ce8895ac773af544d7af48bbe3a95b1c34362d1c173227d`，在 Finder 安装到 `/Applications/PRBOT.app` 并启动。
+
+更新前备份原应用、所有用户数据及 Codex 配置；工作空间和 Telegram 设置与初始备份逐字节相同。最后一次启动后真实 Telegram `/status` 仍返回原任务 awaiting_review、当前提交 CI passed、Issue closed；空的 `/continue` 只返回可点击的 Review 链接，没有重复写入或发布。
+
+[本次开发 PR #25](https://github.com/C0verSnow/PRBOT1/pull/25) 保持开放，未合并；[Issue #24](https://github.com/C0verSnow/PRBOT1/issues/24) 已在 `2026-10-31T09:20:57Z` 按正文要求关闭。最后仅 Markdown 记录更新使用 `[skip ci]`，没有改变经过验证并安装的代码。本地没有进行编译验证。GitHub 检索、候选比较和借鉴链接见上文。

@@ -83,7 +83,7 @@ npm run start
 
 同一聊天和项目延续同一个 Codex Thread；普通文字直接自然对话，操作请求直接执行，执行中的补充要求在回合边界继续。Telegram 与本机使用 `danger-full-access`、`approvalPolicy: never` 和 `skipGitRepoCheck: true`，不再重复确认执行、提交、推送或 PR。Issue 链接先安全准备本地仓库：配置目录本身是正确仓库就复用，否则在 `<配置目录>/<owner>/<repo>` 复用或克隆，保留原有文件；通过当前 Codex GitHub 插件读取需求和权限，再同步默认分支、创建独立 Feature 分支，自动交付 PR 并等待 Review。真正缺少信息时用大白话提问。失败后可以直接追问原因或 `/new`；`/continue` 先检查上次结果，不直接重放未确认的操作。只有无法确定原子进程已停止时才锁住工作空间，并提示准确的恢复命令。
 
-[Issue #19 仓库准备、链接与恢复说明](docs/issue-19.md) · [Issue #17 修复与验证](docs/issue-17.md) · [完整使用、环境配置、Webhook 部署、状态和恢复说明](docs/issue-14.md) · [GitHub 开源实现与 SDK 能力研究](docs/issue-14-research.md)。需要常驻的单主机 Node 进程和持久化工作空间，不适合无状态 Serverless 部署。Telegram 复用运行主机现有 Codex 配置、登录和插件，不另建隔离的 `CODEX_HOME`；SDK 主机必须实际启用并授权 GitHub 插件，插件不可用时会明确失败。Git commit/push 使用本机 Git 凭据。真实 Bot、模型和插件连接仍需实际部署验收。
+[Issue #24 完整交付、CI 验收与关闭策略](docs/issue-24.md) · [Issue #19 仓库准备、链接与恢复说明](docs/issue-19.md) · [Issue #17 修复与验证](docs/issue-17.md) · [完整使用、环境配置、Webhook 部署、状态和恢复说明](docs/issue-14.md) · [GitHub 开源实现与 SDK 能力研究](docs/issue-14-research.md)。需要常驻的单主机 Node 进程和持久化工作空间，不适合无状态 Serverless 部署。Telegram 复用运行主机现有 Codex 配置、登录和插件，不另建隔离的 `CODEX_HOME`；SDK 主机必须实际启用并授权 GitHub 插件，插件不可用时会明确失败。Git commit/push 使用本机 Git 凭据。真实 Bot、模型和插件连接仍需实际部署验收。
 
 ## 配置与数据
 

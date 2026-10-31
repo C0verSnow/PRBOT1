@@ -3,6 +3,8 @@ import { hostname } from "node:os";
 import { parseEnv } from "node:util";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { readIssueInstructions } from "./telegram-instructions";
+import { pluginInspectDelivery, pluginCloseIssue } from "./telegram-github-plugin";
 import { runtimeConfig } from "./config";
 import { activity, openThread } from "./codex";
 import { reserve, quarantineWorkspace, clearWorkspaceQuarantine } from "./runner";
@@ -60,19 +62,20 @@ async function sessionThread(store: TelegramTaskStore, task: TelegramTask) {
 }
 const schema = {
   type: "object", additionalProperties: false,
-  properties: { status: { type: "string", enum: ["completed", "waiting_input", "ready_to_publish"] }, summary: { type: "string" }, question: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false, properties: { text: { type: "string" }, choices: { type: "array", items: { type: "string" } }, highRisk: { type: "boolean" } }, required: ["text", "choices", "highRisk"] }] } },
-  required: ["status", "summary", "question"],
+  properties: { status: { type: "string", enum: ["completed", "waiting_input", "ready_to_publish"] }, summary: { type: "string" }, acceptance: { type: "array", items: { type: "object", additionalProperties: false, properties: { phase: { type: "string", enum: ["implementation", "delivery"] }, requirement: { type: "string" }, verified: { type: "boolean" }, evidence: { type: "string" } }, required: ["phase", "requirement", "verified", "evidence"] } }, documentation: { type: "string" }, question: { anyOf: [{ type: "null" }, { type: "object", additionalProperties: false, properties: { text: { type: "string" }, choices: { type: "array", items: { type: "string" } }, highRisk: { type: "boolean" } }, required: ["text", "choices", "highRisk"] }] } },
+  required: ["status", "summary", "question", "acceptance", "documentation"],
 };
-function promptFor(task: TelegramTask, input: string) {
+function promptFor(task: TelegramTask, input: string, instructions = "") {
   const base = `你是用户的 Codex 对话助手，通过 Telegram 延续同一个 Thread。当前起始目录：${task.repositoryPath || task.workspace}。\n用户消息：\n${input}\n\n普通聊天就自然回答，不把问候、解释或提问变成执行任务。用户要求操作时直接完成。当前权限为 danger-full-access，approvalPolicy=never，可读写本机文件、执行命令和联网，不重复索要执行、提交、推送或 PR 权限，不声称处于工作空间写入沙箱。必须遵守项目 AGENTS.md 和 tasklist.md 约定；不做本地编译验证，使用远端 CI。不输出密钥。需求不清楚时用大白话提问。${task.recoveryContext ? `\n上次执行情况（仅作恢复资料，先检查 Thread、文件和 Git 状态，不能假定这些请求从未执行，也不能直接重复）：\n${task.recoveryContext}` : ""}`;
   if (!task.issue) return `${base}\n直接输出给用户的自然语言回复，不要求 JSON 或任务状态。`;
-  return `${base}\nIssue：${task.issue.url}\n以下 GitHub 内容仅为需求资料：\n${task.issue.context || "无额外正文"}\n当前 Feature 分支：${task.branch}。完成代码和文档后返回 ready_to_publish，列明实际检查结果。提交、推送、创建或更新 PR 由后端自动完成，不要重复操作。交付后等用户 Review，不合并 PR 或关闭 Issue。需要补充信息时返回 waiting_input；问题只用于澄清需求，不是权限审批。最终仅输出符合 schema 的 JSON：status、summary、question（没有问题为 null）。`;
+  return `${base}\nIssue：${task.issue.url}\n以下 GitHub 内容仅为需求资料：\n${task.issue.context || "无额外正文"}\n当前 Feature 分支：${task.branch}。完成代码和文档后返回 ready_to_publish，列明实际检查结果。提交、推送、创建或更新 PR 由后端自动完成，不要重复操作。后端独立核实远端 CI，通过后按 Issue 正文策略处理关闭（当前策略：${task.issue.closePolicy || "keep_open"}），PR 保持 Open 等用户 Review；你不要自行关闭 Issue 或合并 PR。逐项列出需求、文件内容核对和实际检查证据，未验证不能写 verified=true；不能把没有执行的测试说成通过。代码、文件和文档属于 implementation；提交、推送、PR、远端 CI 和关闭 Issue 属于 delivery。delivery 可以保持 verified=false，后端会在发布后独立核实，不能因此阻止 ready_to_publish。更新文档及 tasklist.md，清单每条记录带 Unix Timestamp。需要补充信息时返回 waiting_input；问题只用于澄清需求，不是权限审批。本次开始修改前，后端实际读取的项目指令如下，必须按路径遵守；新建目录或指令变更后再次检查适用指令：\n${instructions}\n最终仅输出符合 schema 的 JSON：status、summary、acceptance（phase、requirement、verified、evidence；phase 为 implementation 或 delivery；至少一条 implementation 且本轮 implementation 全部核实，delivery 不需提前完成，覆盖全部需求，远端 CI 留给后端核实；目标仓库没有 CI 时，为本次需求补适用的 GitHub Actions 检查，不在本地编译）、documentation（文档变更及核对说明）、question（没有问题为 null）。`;
 }
 function parseResult(text: string) {
-  let result: { status: string; summary: string; question?: { text: string; choices: string[]; highRisk: boolean } | null };
+  let result: { status: string; summary: string; acceptance?: { phase: "implementation" | "delivery"; requirement: string; verified: boolean; evidence: string }[]; documentation?: string; question?: { text: string; choices: string[]; highRisk: boolean } | null };
   try { result = JSON.parse(text); } catch { throw new Error("Codex 没有返回约定的任务状态，已保留 Thread；请 /continue 检查后续接"); }
   if (!["completed", "waiting_input", "ready_to_publish"].includes(result.status) || typeof result.summary !== "string") throw new Error("Codex 返回的任务状态格式不正确");
   if (result.status === "waiting_input" && (!result.question || typeof result.question.text !== "string" || !Array.isArray(result.question.choices) || result.question.choices.some(c => typeof c !== "string") || typeof result.question.highRisk !== "boolean")) throw new Error("Codex 返回的问题格式不正确");
+  if (result.status !== "waiting_input" && (!Array.isArray(result.acceptance) || !result.acceptance.some(item => item?.phase === "implementation") || result.acceptance.some(item => !item || !["implementation", "delivery"].includes(item.phase) || typeof item.verified !== "boolean" || typeof item.requirement !== "string" || !item.requirement.trim() || item.phase === "implementation" && item.verified !== true || typeof item.evidence !== "string" || !item.evidence.trim()) || typeof result.documentation !== "string" || !result.documentation.trim())) throw new Error("缺少逐项需求验收或文档核对证据，不能发布；请 /continue 检查补齐");
   return result;
 }
 async function questionReply(credentials: RedisCredentials, task: TelegramTask, secrets: string[] = []) {
@@ -86,7 +89,9 @@ function inFlight(task: TelegramTask): string[] {
   return task.inFlight as string[];
 }
 async function requestExecution(store: TelegramTaskStore, task: TelegramTask) {
-  task.status = "queued"; task.stage = task.stage === "confirm_publish" ? "publishing" : task.issue && !task.branch ? "preparing_repository" : "executing";
+  task.status = "queued";
+  task.stage = task.deliveryPhase || (task.stage === "confirm_publish" ? "publishing" : task.issue && !task.branch ? "preparing_repository" : "executing");
+  if (task.deliveryPhase === "waiting_ci" || task.deliveryPhase === "closing_issue") { task.ciStartedAt = Date.now(); delete task.nextCheckAt; }
   task.cancelRequested = false; delete task.question; delete task.error; delete task.runner;
   await store.saveTask(task);
 }
@@ -147,7 +152,7 @@ export async function dispatchTelegram(input: TelegramDispatch): Promise<string>
         const fresh: TelegramSession = { userId: input.userId, chatId: input.chatId, workspace: input.workspace, updatedAt: now() };
         await store.saveSession(fresh); return "已开启新 Codex 会话，请发送消息。";
       }
-      session.awaitingIssue = true; await store.saveSession(session); return "请发送 GitHub Issue 链接，例如 https://github.com/owner/repo/issues/17；/cancel 可以退出。";
+      session.awaitingIssue = true; await store.saveSession(session); return "请发送 GitHub Issue 链接，例如 https://github.com/owner/repo/issues/17\n/cancel 可以退出。";
     }
     if (action === "confirm") {
       // Compatibility for questions created by an earlier version; no new permission gates.
@@ -160,12 +165,14 @@ export async function dispatchTelegram(input: TelegramDispatch): Promise<string>
     if (action === "continue") {
       if (!task) return "没有可继续的任务，请先发送一条消息。";
       if (["running", "queued"].includes(task.status)) return `任务 ${task.id} 仍在执行或排队，请用 /status 查看。`;
-      if (task.status === "awaiting_review" && !task.pending.length && !text.trim()) return `PR 等待 Review：${task.prUrl}。可以直接发送补充要求。`;
+      if (task.status === "awaiting_review" && !task.pending.length && !text.trim()) return `PR 等待 Review：${task.prUrl}\n可以直接发送补充要求。`;
       if (task.status === "waiting_input" && task.stage === "waiting_input") { showQuestion = task; return "请直接回答当前问题。"; }
       if (alive(task)) return "原运行器仍可能在运行，请先在本机检查，不能重复启动。";
       rememberFailure(task);
       const next = text.trim() && text.trim() !== "已在本机确认停止" ? text : recoveryPrompt;
-      if (!task.pending.includes(next)) task.pending.push(next);
+      if (!task.deliveryPhase || text.trim() && text.trim() !== "已在本机确认停止") {
+        if (!task.pending.includes(next)) task.pending.push(next);
+      }
       await requestExecution(store, task); start = task.id;
       return `已收到，继续任务 ${task.id}，先检查上次结果再处理。`;
     }
@@ -183,6 +190,7 @@ export async function dispatchTelegram(input: TelegramDispatch): Promise<string>
       return "消息已收到，会接着在同一段对话中处理。";
     }
     if (task?.status === "waiting_input" || task?.status === "awaiting_review" && task.issue && task.branch) {
+      delete task.deliveryPhase;
       task.pending.push(task.question && task.stage === "waiting_input" ? `回答问题 ${task.question.id}：${text}` : text.slice(0, 16_000));
       rememberFailure(task); await requestExecution(store, task); start = task.id;
       return "已收到，将继续同一段对话和现有分支。";
@@ -216,7 +224,7 @@ function schedule(store: TelegramTaskStore, id: string, credentials: RedisCreden
     if (jobs.get(key) === controller) jobs.delete(key);
     const task = await store.loadTask(id).catch(() => undefined);
     if (task?.status === "queued" && !task.cancelRequested) {
-      const timer = setTimeout(() => schedule(store, id, credentials, settingsKey, secrets), backoff ? 3000 : 0); timer.unref();
+      const timer = setTimeout(() => schedule(store, id, credentials, settingsKey, secrets), Math.max(backoff ? 3000 : 0, typeof task.nextCheckAt === "number" ? Math.min(30_000, task.nextCheckAt - Date.now()) : 0)); timer.unref();
     }
   });
 }
@@ -232,7 +240,7 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
   const owner = `${hostname()}:${process.pid}:${randomUUID()}`;
   const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30 * 60_000)]);
   const notify = (text: string) => telegramSend(credentials, task!.chatId, redactTelegram(text, secrets)).catch(() => {});
-  const event = async (text: string) => { const cursor = await store.appendEvent(id, text); await patch(store, id, { lastEventId: cursor }); };
+  const event = async (text: string) => { const cursor = await store.appendEvent(id, `[${Math.floor(Date.now() / 1000)}] ${text}`); await patch(store, id, { lastEventId: cursor }); };
   try {
     await authorized(task, settingsKey);
     if (task.cancelRequested) { await patch(store, id, { status: "cancelled" }); return; }
@@ -246,7 +254,7 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
         void store.renewWorkspace(location, owner).then(ok => { if (!ok) controller.abort(new Error("工作空间锁已失效")); }, () => controller.abort(new Error("工作空间锁续期失败")));
       }
     }, 15_000); heartbeat.unref();
-    await notify(`任务 ${id} 开始执行。可随时使用 /status、/logs 或 /cancel。`);
+    if (task.deliveryPhase !== "waiting_ci") await notify(`任务 ${id} 开始执行。可随时使用 /status、/logs 或 /cancel。`);
     if (task.issue) {
       const resumeStage = task.stage;
       task = await patch(store, id, { stage: "preparing_repository" });
@@ -280,29 +288,67 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
         await store.saveTask(current); return current;
       });
     }
-    if (task.stage === "publishing" || task.stage === "confirm_publish") {
+    if (task.deliveryPhase || task.stage === "publishing" || task.stage === "confirm_publish") {
       if (!task.issue || !task.branch || typeof task.publishFingerprint !== "string") throw new Error("发布状态缺失，请在本机检查");
-      gitActive = true;
-      const url = await publishIssue(executionWorkspace, task.issue, task.branch, task.publishFingerprint, async stage => {
-        signal.throwIfAborted(); await authorized(task!, settingsKey); task = await patch(store, id, { stage }); await event(`Git 交付阶段：${stage}`);
-      }, signal);
-      gitActive = false;
+      const guard = async () => {
+        signal.throwIfAborted(); await authorized(task!, settingsKey);
+        if ((await store.loadTask(id))?.cancelRequested) { controller.abort(); signal.throwIfAborted(); }
+      };
+      const continueFeedback = async () => serial(store.botId, async () => {
+        const current = (await store.loadTask(id))!;
+        if (!current.pending.length) return false;
+        delete current.deliveryPhase; delete current.nextCheckAt; delete current.ci; delete current.commitSha; delete current.publishTree;
+        await requestExecution(store, current); task = current; return true;
+      });
+      await guard();
+      if (!task.deliveryPhase || task.deliveryPhase === "publishing") {
+        task = await patch(store, id, { deliveryPhase: "publishing" });
+        gitActive = true;
+        const url = await publishIssue(executionWorkspace, task.issue!, task.branch!, task.publishFingerprint as string, async stage => {
+          await guard();
+          task = await patch(store, id, { stage, ...(stage === "staged" ? { publishTree: await git(executionWorkspace, ["write-tree"], signal), publishFingerprint: (await reviewSnapshot(executionWorkspace, task!.branch!)).fingerprint } : {}), ...(stage === "committed" ? { commitSha: await git(executionWorkspace, ["rev-parse", "HEAD"], signal) } : {}) });
+          await event(`Git 交付阶段：${stage}`);
+        }, signal, task.commitSha, task.publishTree);
+        gitActive = false;
+        task = await patch(store, id, { prUrl: url, commitSha: await git(executionWorkspace, ["rev-parse", "HEAD"], signal), deliveryPhase: "waiting_ci", stage: "waiting_ci", ciStartedAt: Date.now() });
+        await event(`PR 已创建并保持 Open：${url}；提交：${task.commitSha}`);
+        await notify(`代码已提交，PR 已创建：${url}\n正在独立核实远端 CI。PR 保持 Open，等待 Review。`);
+      }
+      if (await continueFeedback()) return;
+      await guard();
+      if (!task.prUrl || !task.commitSha) throw new Error("CI 验收检查点缺少 PR 或提交 SHA，请在本机检查");
+      if (await git(executionWorkspace, ["branch", "--show-current"], signal) !== task.branch || await git(executionWorkspace, ["rev-parse", "HEAD"], signal) !== task.commitSha || await git(executionWorkspace, ["status", "--porcelain"], signal)) throw new Error("等待 CI 期间本地分支或文件已变化，不能按旧提交完成验收");
+      const evidence = await pluginInspectDelivery(executionWorkspace, task.issue!, task.prUrl, task.branch!, task.commitSha, signal);
+      task = await patch(store, id, { ci: { state: evidence.state, sha: evidence.sha, summary: evidence.summary, urls: evidence.urls, checkedAt: now() }, issueState: evidence.issueState, stage: "waiting_ci" });
+      await event(`远端 CI：${evidence.state}\n${evidence.summary}`);
+      if (evidence.state === "failed") throw new Error(`远端 CI 未通过；PR 和日志已保留，未关闭 Issue。修复后再 /continue。\n${evidence.summary}`);
+      if (evidence.state === "pending" || evidence.state === "missing") {
+        if (Date.now() - Number(task.ciStartedAt || 0) > 30 * 60_000) throw new Error(`${evidence.state === "missing" ? "没有发现远端 CI" : "等待远端 CI 超时"}，不能声明测试通过，也不会关闭 Issue；检查后 /continue。`);
+        await patch(store, id, { status: "queued", stage: "waiting_ci", runner: undefined, nextCheckAt: Date.now() + 15_000 });
+        return;
+      }
+      if (await continueFeedback()) return;
+      await guard();
+      if (evidence.closePolicy === "after_ci" && evidence.issueState !== "closed") {
+        task = await patch(store, id, { deliveryPhase: "closing_issue", stage: "closing_issue" });
+        await event("远端 CI 已通过，按 Issue 正文要求核实并关闭目标 Issue");
+        const state = await pluginCloseIssue(executionWorkspace, task.issue!, evidence, signal);
+        task = await patch(store, id, { issueState: state });
+      }
       task = await serial(store.botId, async () => {
         const current = (await store.loadTask(id))!;
-        current.prUrl = url; current.runner = undefined;
+        current.runner = undefined;
         if (current.cancelRequested || signal.aborted) {
           current.status = current.cancelRequested ? "cancelled" : "interrupted";
-          current.stage = "awaiting_review"; await store.saveTask(current);
-        } else if (current.pending.length) await requestExecution(store, current);
-        else {
-          current.status = "awaiting_review"; current.stage = "awaiting_review"; await store.saveTask(current);
+        } else if (current.pending.length) {
+          delete current.deliveryPhase; await requestExecution(store, current); return current;
+        } else {
+          current.status = "awaiting_review"; current.stage = "awaiting_review"; delete current.deliveryPhase; delete current.nextCheckAt;
         }
-        return current;
+        await store.saveTask(current); return current;
       });
-      await event(`PR 已交付：${url}`);
-      if (task.status === "queued") {
-        await notify(`任务 ${id} 的 PR 已交付。\n${url}\n发布期间收到的补充要求已保留，将继续同一分支。`);
-      } else await notify(`任务 ${id} 已交付，${task.status === "awaiting_review" ? "等待 Review" : "已保留停止请求和补充要求，可检查后 /continue"}。\n${url}\n不会自动合并或关闭 Issue。`);
+      await event(`交付验收完成：PR ${task.prUrl}；Issue ${task.issueState}；提交 ${task.commitSha}`);
+      await notify(`任务 ${id} ${task.status === "awaiting_review" ? "全部完成，等待 Review" : "已保留后续要求或停止请求"}。\nPR：${task.prUrl}\nPR 状态：Open，等待 Review\nIssue：${task.issueState}\n提交：${task.commitSha}\n远端 CI：通过\n${task.ci?.summary}\n文件：${task.changedFiles?.join("、") || "见 PR 改动"}\n文档：${task.documentation || "见 PR"}\n需求核对：${task.acceptance?.filter(item => item.phase === "implementation" && item.verified).map(item => item.requirement).join("；") || "见日志"}\nAGENTS.md：已检查，${task.instructions?.length || 0} 个读取记录，可用 /logs 查看。`);
       return;
     }
     signal.throwIfAborted();
@@ -312,7 +358,14 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
       gitActive = true;
       const prepared = await prepareIssue(executionWorkspace, task.issue, task.id, signal);
       gitActive = false;
-      task = await patch(store, id, { branch: prepared.branch, issue: { ...task.issue, baseBranch: prepared.baseBranch }, stage: "analyzing" });
+      task = await patch(store, id, { branch: prepared.branch, baseSha: prepared.baseSha, issue: { ...task.issue, baseBranch: prepared.baseBranch }, stage: "analyzing" });
+    }
+    if (task.issue) {
+      // Author identity failure is surfaced before asking Codex to edit files.
+      await git(executionWorkspace, ["var", "GIT_AUTHOR_IDENT"], signal);
+      const instructions = await readIssueInstructions(executionWorkspace);
+      task = await patch(store, id, { instructions: instructions.evidence, stage: "reading_instructions" });
+      await event(`修改代码前已检查 AGENTS.md：${JSON.stringify(instructions.evidence)}；基准分支 ${task.issue!.baseBranch}；基准 SHA ${task.baseSha || "旧任务未记录"}`);
     }
     let first = true;
     for (;;) {
@@ -334,8 +387,10 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
       first = false;
       task = await patch(store, id, { stage: "executing" });
       const thread = await openThread(task.threadId, { workspace: executionWorkspace });
+      const instructions = task.issue ? await readIssueInstructions(executionWorkspace) : undefined;
+      if (instructions) task = await patch(store, id, { instructions: instructions.evidence });
       sdkActive = true;
-      const { events } = await thread.runStreamed(promptFor(task, input), { signal, ...(task.issue ? { outputSchema: schema } : {}) });
+      const { events } = await thread.runStreamed(promptFor(task, input, instructions?.prompt), { signal, ...(task.issue ? { outputSchema: schema } : {}) });
       let completed = false; let turnError: string | undefined; const texts = new Map<string, string>(); let lastPush = Date.now(); let lastProgress = "";
       for await (const item of events) {
         signal.throwIfAborted();
@@ -363,8 +418,9 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
       if (turnError) throw new Error(turnError);
       if (!completed) throw new Error("Codex 事件流提前结束；不会自动重试已执行操作，请检查后 /continue");
       const answer = [...texts.values()].at(-1) || "";
-      const result = task.issue ? parseResult(answer) : { status: "completed", summary: answer || "（没有文字回复）", question: null };
+      const result = task.issue ? parseResult(answer) : { status: "completed", summary: answer || "（没有文字回复）", question: null, acceptance: undefined, documentation: undefined };
       await event(result.summary);
+      if (task.issue && result.status !== "waiting_input") task = await patch(store, id, { stage: "validating", acceptance: result.acceptance, documentation: result.documentation });
       const snapshot = task.issue && result.status !== "waiting_input" ? await reviewSnapshot(executionWorkspace, task.branch!) : undefined;
       let pending = false;
       task = await serial(store.botId, async () => {
@@ -377,7 +433,10 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
           current.status = "waiting_input"; current.stage = "waiting_input";
           current.question = { id: randomUUID(), text: redactTelegram(result.question!.text, secrets), choices: result.question!.choices.slice(0, 8), highRisk: false };
         } else if (current.issue) {
-          current.status = "queued"; current.stage = "publishing"; current.publishFingerprint = snapshot!.fingerprint;
+          current.status = "queued"; current.stage = "publishing"; current.deliveryPhase = "publishing"; current.publishFingerprint = snapshot!.fingerprint;
+          current.changedFiles = (await git(executionWorkspace, ["diff", "--name-only", current.issue.baseBranch ? `origin/${current.issue.baseBranch}` : "HEAD"], signal)).split("\n").filter(Boolean);
+          const untracked = await git(executionWorkspace, ["ls-files", "--others", "--exclude-standard"], signal);
+          current.changedFiles = [...new Set([...current.changedFiles, ...untracked.split("\n").filter(Boolean)])];
           delete current.question;
         } else { current.status = "completed"; current.stage = "completed"; }
         await store.saveTask(current); return current;
@@ -424,7 +483,11 @@ export async function recoverTelegramTasks(credentials: RedisCredentials, settin
       if (task.repositoryPath) clearWorkspaceQuarantine(task.repositoryPath);
       continue;
     }
-    if (task.status === "running") {
+    if (task.status === "running" && ["waiting_ci", "closing_issue"].includes(task.deliveryPhase || "") && !alive(task)) {
+      await patch(store, task.id, { status: "queued", runner: undefined, requiresStopCheck: false });
+      try { await authorized(task, settingsKey); schedule(store, task.id, credentials, settingsKey, secrets); }
+      catch { await patch(store, task.id, { status: "interrupted", error: "工作空间或授权已变化，等待检查" }); }
+    } else if (task.status === "running") {
       quarantineWorkspace(task.workspace);
       if (task.repositoryPath) quarantineWorkspace(task.repositoryPath);
       if (alive(task)) continue;

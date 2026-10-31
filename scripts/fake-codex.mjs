@@ -39,6 +39,8 @@ emit({ type: "turn.started" });
 if (prompt.includes("PRBOT_GITHUB_PLUGIN_")) {
   const created = prompt.includes("PRBOT_GITHUB_PLUGIN_PR_CREATE");
   const inspected = prompt.includes("PRBOT_GITHUB_PLUGIN_INSPECT");
+  const delivery = prompt.includes("PRBOT_GITHUB_PLUGIN_DELIVERY");
+  const closing = prompt.startsWith("PRBOT_GITHUB_PLUGIN_CLOSE\n");
   const metadataLine = prompt.split("\n").find(line => inspected ? line.startsWith("只读检查：{") : line.startsWith("{"));
   const metadata = JSON.parse(inspected ? metadataLine.slice("只读检查：".length) : metadataLine);
   const repository = inspected ? `${metadata.owner}/${metadata.repo}` : metadata.repository;
@@ -49,6 +51,23 @@ if (prompt.includes("PRBOT_GITHUB_PLUGIN_")) {
     call("issue-plugin", "fetch_issue", { repository_full_name: repository, issue_number: metadata.issueNumber }, { issue: { url: metadata.issueUrl, issue_number: metadata.issueNumber, title: "Fixture Issue", body, state: "open" } });
     call("repo-plugin", "get_repo", { repository_full_name: repository }, { repository_full_name: repository, name: metadata.repo, owner: { login: metadata.owner }, default_branch: "main", permissions: { push: true, pull: true } });
     data = { title: "Fixture Issue", context: body, defaultBranch: "main", canRead: true, canWrite: true, isOpen: true, isPullRequest: false };
+  } else if (delivery) {
+    const payloads = [
+      { html_url: metadata.prUrl, state: "open", merged: false, head: { ref: metadata.head, sha: metadata.sha, repo: { full_name: repository } }, base: { ref: metadata.base } },
+      { html_url: `https://github.com/${repository}/issues/14`, number: 14, state: "open", body: "完成后提 PR 并关闭 issue" },
+      { total_count: 1, check_runs: [{ id: 1, name: "verify", head_sha: metadata.sha, status: "completed", conclusion: "success", app: { id: 1 }, html_url: `https://github.com/${repository}/actions/runs/1` }] },
+      { sha: metadata.sha, total_count: 0, statuses: [] },
+      { total_count: 0, workflow_runs: [] },
+    ];
+    metadata.urls.forEach((url, index) => call(`delivery-${index}`, "fetch", { url }, { content: JSON.stringify(payloads[index]) }));
+    data = { ok: true };
+  } else if (closing) {
+    const parameters = { repository_full_name: repository, issue_number: metadata.issueNumber };
+    const issue = state => ({ issue: { url: metadata.issueUrl, number: metadata.issueNumber, state, body: "完成后提 PR 并关闭 issue" } });
+    call("before-close", "fetch_issue", parameters, issue("open"));
+    call("close", "update_issue", { ...parameters, state: "closed", state_reason: "completed" }, issue("closed"));
+    call("after-close", "fetch_issue", parameters, issue("closed"));
+    data = { ok: true };
   } else {
     const prUrl = `https://github.com/${repository}/pull/15`;
     call("lookup-plugin", "search_prs", { repository_full_name: repository, query: `head:${metadata.head} base:${metadata.base}`, state: "open" }, { issues: [] });
@@ -81,5 +100,5 @@ if (prompt.includes("写入测试文件")) {
 }
 emit({ type: "item.started", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "", status: "in_progress" } });
 emit({ type: "item.completed", item: { id: "command", type: "command_execution", command: "pwd", aggregated_output: "CI fixture workspace", status: "completed", exit_code: 0 } });
-emit({ type: "item.completed", item: { id: "msg", type: "agent_message", text: args.includes("--output-schema") ? JSON.stringify({ status: "completed", summary: resumed ? "远程原线程已继续" : "远程任务已处理", question: null }) : resumed ? "已接着上次对话继续。\n\n```ts\nconst continued = true;\n```" : "你好！我已连接到当前项目。\n\n- 可以阅读代码\n- 可以修改文件" } });
+emit({ type: "item.completed", item: { id: "msg", type: "agent_message", text: args.includes("--output-schema") ? JSON.stringify({ status: "completed", summary: resumed ? "远程原线程已继续" : "远程任务已处理", acceptance: [{ phase: "implementation", requirement: "写入测试文件", verified: true, evidence: "SDK 子进程已写入并由测试读回文件" }], documentation: "CI 夹具文档说明已核对", question: null }) : resumed ? "已接着上次对话继续。\n\n```ts\nconst continued = true;\n```" : "你好！我已连接到当前项目。\n\n- 可以阅读代码\n- 可以修改文件" } });
 emit({ type: "turn.completed", usage: { input_tokens: 20, cached_input_tokens: 0, output_tokens: 10 } });

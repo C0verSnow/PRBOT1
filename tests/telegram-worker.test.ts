@@ -4,12 +4,14 @@ import os from "node:os";
 import path from "node:path";
 const mocks = vi.hoisted(() => ({
   settings: { projectId: "project", clientId: "client", clientSecret: "long-infisical-secret", environment: "prod", allowedUsers: "123,456", enabled: true },
-  run: vi.fn(), open: vi.fn(), send: vi.fn(async () => {}), ensure: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), publish: vi.fn(), snapshot: vi.fn(), git: vi.fn(),
+  run: vi.fn(), open: vi.fn(), send: vi.fn(async () => {}), ensure: vi.fn(), prepare: vi.fn(), inspect: vi.fn(), publish: vi.fn(), snapshot: vi.fn(), git: vi.fn(), instructions: vi.fn(), delivery: vi.fn(), close: vi.fn(),
 }));
 vi.mock("../src/lib/telegram-settings", () => ({ readTelegramSettings: async () => mocks.settings }));
 vi.mock("../src/lib/codex", () => ({ openThread: mocks.open, activity: () => undefined }));
 vi.mock("../src/lib/telegram-api", () => ({ telegramSend: mocks.send }));
 vi.mock("../src/lib/telegram-github", () => ({ ensureIssueRepository: mocks.ensure, git: mocks.git, parseIssueLink: (url: string) => ({ owner: "owner", repo: "repo", number: 14, url }), inspectIssue: mocks.inspect, prepareIssue: mocks.prepare, reviewSnapshot: mocks.snapshot, publishIssue: mocks.publish }));
+vi.mock("../src/lib/telegram-instructions", () => ({ readIssueInstructions: mocks.instructions }));
+vi.mock("../src/lib/telegram-github-plugin", () => ({ pluginInspectDelivery: mocks.delivery, pluginCloseIssue: mocks.close }));
 import { dispatchTelegram, recoverTelegramTasks } from "../src/lib/telegram-worker";
 import { TelegramTaskStore, type TelegramTask } from "../src/lib/telegram-task-store";
 import { reserve, clearWorkspaceQuarantine } from "../src/lib/runner";
@@ -22,7 +24,7 @@ function dispatch(text: string, action: "message" | "confirm" | "continue" | "ca
 }
 async function current() { const session = await store.loadSession("123", "123", directory); return session.taskId ? store.loadTask(session.taskId) : undefined; }
 async function wait(status: TelegramTask["status"]) { await vi.waitFor(async () => expect((await current())?.status).toBe(status), { timeout: 5000 }); return (await current())!; }
-const result = (status = "completed", question: object | null = null) => JSON.stringify({ status, summary: "已处理", question });
+const result = (status = "completed", question: object | null = null) => JSON.stringify({ status, summary: "已处理", acceptance: [{ phase: "implementation", requirement: "实现需求", verified: true, evidence: "已读回文件并核对" }], documentation: "已更新 README", question });
 function fixture(text: string) {
   mocks.run.mockImplementation(async () => ({ events: (async function* () {
     yield { type: "thread.started", thread_id: "stable-thread" };
@@ -40,7 +42,10 @@ beforeEach(async () => {
     await options.beforePrepare?.(workspace);
     return workspace;
   });
-  mocks.git.mockReset().mockResolvedValue("feature/issue-14");
+  mocks.git.mockReset().mockImplementation(async (_workspace, args) => args[0] === "rev-parse" ? "a".repeat(40) : args[0] === "status" ? "" : args[0] === "diff" ? "README.md" : args[0] === "ls-files" ? "" : "feature/issue-14");
+  mocks.instructions.mockReset().mockResolvedValue({ evidence: [{ path: "/project/AGENTS.md", sha256: "b".repeat(64), readAt: new Date().toISOString() }], prompt: "不做本地编译" });
+  mocks.delivery.mockReset().mockResolvedValue({ sha: "a".repeat(40), state: "passed", summary: "verify: success", urls: [], issueState: "open", closePolicy: "keep_open" });
+  mocks.close.mockReset().mockResolvedValue("closed");
   mocks.open.mockImplementation(async () => ({ runStreamed: mocks.run }));
   let cursor = 0; const keys = new Map<string, string>();
   vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => {
@@ -74,7 +79,7 @@ async function seed(fields: Partial<TelegramTask> = {}) {
 }
 function issueFixture() {
   mocks.inspect.mockResolvedValue({ owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", title: "Issue", baseBranch: "main" });
-  mocks.prepare.mockResolvedValue({ branch: "feature/issue-14", baseBranch: "main" });
+  mocks.prepare.mockResolvedValue({ branch: "feature/issue-14", baseBranch: "main", baseSha: "c".repeat(40) });
   mocks.snapshot.mockResolvedValue({ fingerprint: "reviewed", summary: "1 file changed", hasChanges: true });
   mocks.publish.mockResolvedValue("https://github.com/owner/repo/pull/15");
   fixture(result("ready_to_publish"));
@@ -259,5 +264,64 @@ describe("durable Telegram worker", { timeout: 15_000 }, () => {
     await recoverTelegramTasks(credentials, settingsKey()); const interrupted = (await current())!;
     expect(interrupted.status).toBe("interrupted"); expect(interrupted.requiresStopCheck).toBe(true);
     expect(interrupted.inFlight).toEqual(["重启前请求"]); expect(mocks.open).not.toHaveBeenCalled();
+  });
+});
+
+describe("Issue #24 validated delivery and resume", { timeout: 15_000 }, () => {
+  it("reads and persists instructions before a writable turn and reports the verified result", async () => {
+    issueFixture(); await dispatch("https://github.com/owner/repo/issues/14");
+    const task = await wait("awaiting_review");
+    expect(mocks.instructions.mock.invocationCallOrder[0]).toBeLessThan(mocks.run.mock.invocationCallOrder[0]);
+    expect(task.instructions?.[0].sha256).toHaveLength(64); expect(task.baseSha).toHaveLength(40);
+    expect(task.acceptance?.[0].verified).toBe(true); expect(task.documentation).toContain("README");
+    expect(task.ci).toMatchObject({ state: "passed", sha: "a".repeat(40) });
+    expect(mocks.close).not.toHaveBeenCalled();
+  });
+  it("blocks publication when requirement or documentation evidence is missing", async () => {
+    issueFixture(); fixture(JSON.stringify({ status: "ready_to_publish", summary: "done", question: null }));
+    await dispatch("https://github.com/owner/repo/issues/14"); const task = await wait("failed");
+    expect(task.error).toContain("验收或文档"); expect(mocks.publish).not.toHaveBeenCalled(); expect(mocks.close).not.toHaveBeenCalled();
+  });
+  it("publishes completed implementation while independently verifying pending backend delivery", async () => {
+    issueFixture(); fixture(JSON.stringify({ status: "ready_to_publish", summary: "文件已完成，交付由后端继续", question: null, documentation: "README 已更新", acceptance: [
+      { phase: "implementation", requirement: "Issuetest.md", verified: true, evidence: "已读回 issue test done" },
+      { phase: "delivery", requirement: "CI、PR 和关闭 Issue", verified: false, evidence: "尚未推送，等待后端核实" },
+    ] }));
+    mocks.delivery.mockResolvedValue({ sha: "a".repeat(40), state: "passed", summary: "verify: success", urls: [], issueState: "open", closePolicy: "after_ci" });
+    await dispatch("https://github.com/owner/repo/issues/14"); const task = await wait("awaiting_review");
+    expect(task.issueState).toBe("closed"); expect(mocks.delivery).toHaveBeenCalled(); expect(mocks.close).toHaveBeenCalledTimes(1);
+  });
+  it("keeps a failing CI's PR open and resumes checks without rerunning development or creating another PR", async () => {
+    issueFixture(); mocks.delivery.mockResolvedValueOnce({ sha: "a".repeat(40), state: "failed", summary: "verify: failure", urls: [], issueState: "open", closePolicy: "after_ci" });
+    await dispatch("https://github.com/owner/repo/issues/14"); const failed = await wait("failed");
+    expect(failed.prUrl).toContain("pull/15"); expect(failed.deliveryPhase).toBe("waiting_ci"); expect(mocks.close).not.toHaveBeenCalled();
+    mocks.delivery.mockResolvedValue({ sha: "a".repeat(40), state: "passed", summary: "verify: success", urls: [], issueState: "open", closePolicy: "after_ci" });
+    await dispatch("", "continue"); const done = await wait("awaiting_review");
+    expect(done.id).toBe(failed.id); expect(done.issueState).toBe("closed"); expect(mocks.publish).toHaveBeenCalledTimes(1); expect(mocks.run).toHaveBeenCalledTimes(1);
+  });
+  it("reconciles an uncertain close on continue, without publishing or closing twice", async () => {
+    issueFixture(); mocks.delivery.mockResolvedValue({ sha: "a".repeat(40), state: "passed", summary: "verify: success", urls: [], issueState: "open", closePolicy: "after_ci" });
+    mocks.close.mockRejectedValueOnce(new Error("网络中断，关闭结果未知"));
+    await dispatch("https://github.com/owner/repo/issues/14"); const failed = await wait("failed");
+    expect(failed.deliveryPhase).toBe("closing_issue");
+    mocks.delivery.mockResolvedValue({ sha: "a".repeat(40), state: "passed", summary: "verify: success", urls: [], issueState: "closed", closePolicy: "after_ci" });
+    await dispatch("", "continue"); expect((await wait("awaiting_review")).issueState).toBe("closed");
+    expect(mocks.close).toHaveBeenCalledTimes(1); expect(mocks.publish).toHaveBeenCalledTimes(1); expect(mocks.run).toHaveBeenCalledTimes(1);
+  });
+  it("stops safely while waiting for CI and continues the checkpoint after cancellation", async () => {
+    issueFixture();
+    let finish: ((value: unknown) => void) | undefined;
+    mocks.delivery.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await dispatch("https://github.com/owner/repo/issues/14");
+    await vi.waitFor(() => expect(finish).toBeDefined()); await dispatch("", "cancel");
+    finish!({ sha: "a".repeat(40), state: "passed", summary: "verify: success", urls: [], issueState: "open", closePolicy: "after_ci" });
+    const cancelled = await wait("cancelled"); expect(cancelled.requiresStopCheck).toBe(false); expect(mocks.close).not.toHaveBeenCalled();
+    await dispatch("", "continue"); await wait("awaiting_review"); expect(mocks.run).toHaveBeenCalledTimes(1); expect(mocks.publish).toHaveBeenCalledTimes(1);
+  });
+  it("restores a dead CI-waiting runner by checking GitHub rather than editing again", async () => {
+    issueFixture();
+    await seed({ kind: "issue", status: "running", stage: "waiting_ci", deliveryPhase: "waiting_ci", publishFingerprint: "reviewed", prUrl: "https://github.com/owner/repo/pull/15", commitSha: "a".repeat(40), branch: "feature/issue-14", issue: { owner: "owner", repo: "repo", number: 14, url: "https://github.com/owner/repo/issues/14", baseBranch: "main" }, runner: { pid: 2147483647, host: os.hostname(), startedAt: new Date().toISOString() } });
+    await recoverTelegramTasks(credentials, settingsKey()); await wait("awaiting_review");
+    expect(mocks.run).not.toHaveBeenCalled(); expect(mocks.publish).not.toHaveBeenCalled();
   });
 });

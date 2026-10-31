@@ -1,3 +1,5 @@
+> 当前 Issue 交付和关闭策略已由 [Issue #24](issue-24.md) 更新。以下保留当时的验证记录。
+
 # Issue #17：Telegram 能正常聊天，按要求直接操作
 
 对应 [Issue #17 及最新评论](https://github.com/C0verSnow/PRBOT1/issues/17)。最新评论明确要求像 GPT 一样正常对话，并和本机 Codex 一样使用完全访问、免重复确认。

@@ -108,7 +108,7 @@ describe("GitHub Issue validation", () => {
     await expect(prepareIssue(workspace, issue(), "task-abcdef12")).rejects.toThrow("未提交改动");
     await rm(path.join(workspace, "local.txt"));
     const prepared = await prepareIssue(workspace, issue(), "task-abcdef12");
-    expect(prepared).toEqual({ branch: "feature/prbot-issue-14-task-abc", baseBranch: "main" });
+    expect(prepared).toMatchObject({ branch: "feature/prbot-issue-14-task-abc", baseBranch: "main", baseSha: await git(workspace, ["rev-parse", "HEAD"]) });
     expect(await git(workspace, ["branch", "--show-current"])).toBe(prepared.branch);
     expect(await git(workspace, ["rev-parse", "HEAD"])).toBe(await git(workspace, ["rev-parse", "origin/main"]));
   });
@@ -239,7 +239,7 @@ describe("reviewed Git publication", () => {
     const stages: string[] = [];
     const url = await publishIssue(workspace, issue(), branch, snapshot.fingerprint, async value => { stages.push(value); });
     expect(url).toBe("https://github.com/Owner/project/pull/15");
-    expect(stages).toEqual(["committing", "pushing", "creating_pr"]);
+    expect(stages).toEqual(["committing", "staged", "committed", "pushing", "creating_pr"]);
     expect(await git(remote, ["rev-parse", `refs/heads/${branch}`])).toBe(await git(workspace, ["rev-parse", "HEAD"]));
     expect(await readFile(path.join(workspace, "feature.txt"), "utf8")).toBe("reviewed implementation\n");
     const writes = calls.filter(call => call.operation === "create_pr");
@@ -261,7 +261,7 @@ describe("reviewed Git publication", () => {
     await writeFile(path.join(workspace, "review-followup.txt"), "requested in review\n");
     const snapshot = await reviewSnapshot(workspace, branch); const stages: string[] = [];
     expect(await publishIssue(workspace, issue(), branch, snapshot.fingerprint, async value => { stages.push(value); })).toBe(existing[0].html_url);
-    expect(stages).toEqual(["committing", "pushing"]);
+    expect(stages).toEqual(["committing", "staged", "committed", "pushing"]);
     expect(await git(remote, ["rev-parse", `refs/heads/${branch}`])).toBe(await git(workspace, ["rev-parse", "HEAD"]));
     expect(await git(remote, ["show", `refs/heads/${branch}:review-followup.txt`])).toBe("requested in review");
     expect(calls.some(call => call.operation === "create_pr")).toBe(false);

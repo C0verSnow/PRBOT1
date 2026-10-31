@@ -1,3 +1,5 @@
+> 仓库准备规则仍然适用；交付、CI 验收与 Issue 关闭以 [Issue #24](issue-24.md) 为准。以下保留历史版本说明。
+
 # Issue #19：先准备仓库，再完成 Issue
 
 对应 https://github.com/C0verSnow/PRBOT1/issues/19 。原故障是在普通目录执行 `git remote get-url origin`，得到 `fatal: not a git repository`；旧版 `/continue` 还跳过了最初的 Issue 校验。

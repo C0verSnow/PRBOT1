@@ -1,4 +1,4 @@
-> 当前行为已按 [Issue #17](issue-17.md) 更新：自然对话、完全访问、执行和 PR 交付免重复确认。Issue #14 的历史验证结果仅对应当时的版本。
+> 当前交付行为以 [Issue #24](issue-24.md) 为准：实际读取项目指令、远端 CI 验收、按正文要求关闭 Issue，PR 保持开放。Issue #14 的历史验证结果仅对应当时的版本。
 
 # Telegram 远程使用 Codex（Issue #14）
 
@@ -8,7 +8,7 @@ Telegram 负责收消息和显示结果，PRBOT 的常驻 Node 进程负责任�
 
 沿用 [README](../README.md) 的安装与远端构建交付方式。运行 PRBOT 的主机需要可用的 Codex 登录或 API key，以及持久化的项目目录、`PRBOT_DATA_DIR` 和 Codex 会话目录。只运行一个常驻 Node 服务进程；不适合请求结束即退出的 Serverless Functions，也不支持跨主机接管同一个本地工作空间。
 
-1. 在设置页选择本机项目的绝对路径。Issue 流程要求该目录已经是 Git 仓库，工作区干净，`origin` 的读取和唯一推送地址都对应同一个 GitHub 仓库。Bot 不替用户选择或克隆任意链接中的仓库。
+1. 在设置页选择本机项目的绝对路径。配置目录本身是目标 Git 仓库就复用，否则在 `<配置目录>/<owner>/<repo>` 复用或克隆；不覆盖已有文件。修改前要求工作区干净，`origin` 的读取和唯一推送地址对应目标仓库。
 2. 在 Infisical Cloud 所选项目、环境的根目录准备 `PR_BOT_TOKEN`（兼容旧名 `TELEGRAM_BOT_TOKEN`）、`UPSTASH_REDIS_REST_URL`、`UPSTASH_REDIS_REST_TOKEN`。使用只允许读取这些密钥的 Machine Identity，并启用 Universal Auth。
 3. 在 PRBOT 设置页填写 Infisical Project ID、Client ID、Client Secret、环境名；在 Telegram 页填写允许的数字用户 ID（多个用逗号分开）并启用。只接收白名单用户的私聊消息和按钮操作，群聊和未授权用户不会执行任务。`/id` 也只回复已授权用户。
 4. Issue 读取、评论获取、权限检查和 PR 创建复用当前 Codex 的 GitHub 插件。运行 PRBOT 的同一系统账户、同一 Codex 配置中，必须实际启用并连接该插件，且已授权目标仓库的读取和 PR 创建权限。聊天侧能看到 GitHub 插件，不等于另一个 SDK 主机已经接入；插件缺失、未登录或仓库无权限时会明确失败，不自动绕到另一套认证。
@@ -93,14 +93,14 @@ Bot：校验本地仓库，通过 Codex GitHub 插件读取 Issue 和评论、�
 Bot：检查干净工作区，fetch 默认分支，建立独立 Feature 分支。
 Codex：读取已获取的需求，修改代码和文档，遇到问题时等待回复。
 Bot：显示改动摘要，自动进入提交、推送和 PR 交付。
-Bot：本机 Git 提交 → 推送 → Codex GitHub 插件创建 PR → awaiting_review。
+Bot：本机 Git 提交 → 推送 → Codex GitHub 插件创建 PR → 核实当前提交的远端 CI → 按正文处理 Issue 关闭 → awaiting_review。
 ```
 
 空闲时也可以直接发送具体的 Issue 链接。只接受 `https://github.com/owner/repo/issues/具体编号`；仓库必须与本地 `origin` 对应，Issue 必须仍然打开，不能是 PR，当前 Codex GitHub 插件连接必须能访问该仓库并确认写入权限。运行中的 Issue 链接会按补充要求处理，不启动第二个竞争任务。
 
 Feature 分支形如 `feature/prbot-issue-14-<任务编号前八位>`。自动交付前记录 HEAD、已跟踪文件差异、未跟踪文件内容和分支指纹；交付时文件又变动会停止并要求重新检查。敏感文件路径和指向工作空间外的链接也会被拒绝。提交、推送、创建 PR 分开记状态；失败后检查现有 Git 提交、远端分支，并通过 GitHub 插件查询已有 PR，再决定如何继续。
 
-创建 PR 只代表交付待审，状态为 `awaiting_review`。**不会自动合并 PR，也不会自动关闭 Issue。** 等用户 Review、合并和验收后再处理 Issue。`completed` 用于普通对话任务完成，不能拿来表示 Issue 已验收。
+创建 PR 后先进入 `waiting_ci` 阶段。只有远端检查通过，才按实际 Issue 正文的明确要求处理关闭并进入 `awaiting_review`；没有明确要求就保留 Issue。**PR 始终保持 Open，不自动合并。** `completed` 用于普通对话任务完成，不能拿来表示 Issue 已验收。
 
 ### 任务状态
 
@@ -110,7 +110,7 @@ Feature 分支形如 `feature/prbot-issue-14-<任务编号前八位>`。自动�
 | `running` | 正在执行 Codex 或自动 Git 交付步骤 |
 | `waiting_input` | 正在等缺失需求的答案；看 `/status` 的当前问题 |
 | `completed` | 这一项普通对话任务已完成 |
-| `awaiting_review` | PR 已创建，等用户审阅和验收 |
+| `awaiting_review` | 远端 CI 已通过，Issue 已按正文策略处理，PR 保持 Open 等用户 Review |
 | `cancelled` | 已记录停止；是否能继续还要看原进程检查结果 |
 | `failed` | 执行失败，检查错误和已完成操作后再决定是否续接 |
 | `interrupted` | 连接、超时或重启留下未知执行，需要检查恢复 |
