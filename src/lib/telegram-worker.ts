@@ -365,7 +365,7 @@ async function execute(store: TelegramTaskStore, id: string, credentials: RedisC
       await git(executionWorkspace, ["var", "GIT_AUTHOR_IDENT"], signal);
       const instructions = await readIssueInstructions(executionWorkspace);
       task = await patch(store, id, { instructions: instructions.evidence, stage: "reading_instructions" });
-      await event(`修改代码前已检查 AGENTS.md：${JSON.stringify(instructions.evidence)}；基准分支 ${task.issue.baseBranch}；基准 SHA ${task.baseSha || "旧任务未记录"}`);
+      await event(`修改代码前已检查 AGENTS.md：${JSON.stringify(instructions.evidence)}；基准分支 ${task.issue!.baseBranch}；基准 SHA ${task.baseSha || "旧任务未记录"}`);
     }
     let first = true;
     for (;;) {
