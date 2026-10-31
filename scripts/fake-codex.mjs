@@ -40,7 +40,7 @@ if (prompt.includes("PRBOT_GITHUB_PLUGIN_")) {
   const created = prompt.includes("PRBOT_GITHUB_PLUGIN_PR_CREATE");
   const inspected = prompt.includes("PRBOT_GITHUB_PLUGIN_INSPECT");
   const delivery = prompt.includes("PRBOT_GITHUB_PLUGIN_DELIVERY");
-  const closing = prompt.includes("PRBOT_GITHUB_PLUGIN_CLOSE");
+  const closing = prompt.startsWith("PRBOT_GITHUB_PLUGIN_CLOSE\n");
   const metadataLine = prompt.split("\n").find(line => inspected ? line.startsWith("只读检查：{") : line.startsWith("{"));
   const metadata = JSON.parse(inspected ? metadataLine.slice("只读检查：".length) : metadataLine);
   const repository = inspected ? `${metadata.owner}/${metadata.repo}` : metadata.repository;
