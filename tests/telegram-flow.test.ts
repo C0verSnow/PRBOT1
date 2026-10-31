@@ -96,6 +96,8 @@ describe.skipIf(process.env.PRBOT_TEST_REDIS !== "1")("Telegram → worker → S
     expect(published.id).toBe(failed.id); expect(published.repositoryPath).toBe(target);
     expect(published.workspace).toBe(directory); expect(published.threadId).toBeTruthy();
     expect(published.prUrl).toBe("https://github.com/Owner/project/pull/15");
+    expect(published.ci?.state).toBe("passed"); expect(published.issueState).toBe("closed");
+    expect(published.instructions).toBeDefined(); expect(published.commitSha).toHaveLength(40);
     expect(await git(target, ["branch", "--show-current"])).toBe(published.branch);
     expect(await git(remote, ["show", `${published.branch}:sdk-evidence.txt`])).toContain("written through SDK subprocess");
     await receive(update(4, "/status"));
